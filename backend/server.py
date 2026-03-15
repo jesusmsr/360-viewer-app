@@ -192,39 +192,50 @@ def browse():
     try:
         full_path.relative_to(Path(VIDEOS_BASE_DIR))
     except ValueError:
-        return jsonify({'error': 'Invalid path'}), 403
+        return jsonify({'items': [], 'breadcrumbs': [], 'current_path': folder_path, 'exists': False})
     
     if not full_path.exists():
-        return jsonify({'folders': [], 'videos': [], 'current_path': folder_path, 'exists': False})
+        return jsonify({'items': [], 'breadcrumbs': [], 'current_path': folder_path, 'exists': False})
     
     if not full_path.is_dir():
-        return jsonify({'folders': [], 'videos': [], 'current_path': folder_path, 'error': 'Not a directory'}), 400
+        return jsonify({'items': [], 'breadcrumbs': [], 'current_path': folder_path, 'error': 'Not a directory'}), 400
     
-    folders = []
-    videos = []
+    items = []
     video_extensions = {'.mp4', '.mov', '.avi', '.mkv', '.webm'}
     
     try:
         for item in sorted(full_path.iterdir()):
             if item.is_dir():
-                folders.append({
+                items.append({
                     'name': item.name,
-                    'path': str(item.relative_to(Path(VIDEOS_BASE_DIR)))
+                    'path': str(item.relative_to(Path(VIDEOS_BASE_DIR))),
+                    'type': 'folder'
                 })
             elif item.suffix.lower() in video_extensions:
                 relative_path = item.relative_to(Path(VIDEOS_BASE_DIR))
-                videos.append({
+                items.append({
                     'name': item.name,
                     'path': str(relative_path),
+                    'type': 'video',
                     'modified': datetime.fromtimestamp(item.stat().st_mtime).isoformat(),
                     'size': item.stat().st_size
                 })
     except PermissionError:
         return jsonify({'error': 'Permission denied'}), 403
     
+    # Generar breadcrumbs
+    breadcrumbs = [{'name': '📁 Raíz', 'path': ''}]
+    if folder_path:
+        parts = folder_path.split('/')
+        current = ''
+        for part in parts:
+            if part:
+                current = f"{current}/{part}" if current else part
+                breadcrumbs.append({'name': part, 'path': current})
+    
     return jsonify({
-        'folders': folders,
-        'videos': videos,
+        'items': items,
+        'breadcrumbs': breadcrumbs,
         'current_path': folder_path,
         'exists': True,
         'base_path': VIDEOS_BASE_DIR
