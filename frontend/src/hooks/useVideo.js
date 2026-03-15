@@ -9,8 +9,8 @@ export function useVideo() {
   const [isMuted, setIsMuted] = useState(false);
   
   // Refs para controlar el comportamiento del seek
-  const isSeekingRef = useRef(false);
-  const shouldBePausedRef = useRef(false);
+  // null = no estamos en seek, true = estaba reproduciendo, false = estaba pausado
+  const wasPlayingBeforeSeekRef = useRef(null);
   const seekTimeoutRef = useRef(null);
 
   useEffect(() => {
@@ -26,12 +26,13 @@ export function useVideo() {
     };
 
     const handlePlay = () => {
-      console.log('Video event: play, isSeeking:', isSeekingRef.current, 'shouldBePaused:', shouldBePausedRef.current);
+      console.log('Video event: play, wasPlayingBeforeSeek:', wasPlayingBeforeSeekRef.current);
       
-      // Si el video debería estar pausado (recién después de seek), forzar pausa
-      if (shouldBePausedRef.current) {
-        console.log('Forcing pause - should be paused');
-        // Pequeño delay para evitar conflicto con el evento
+      // Solo interceptar si acabamos de hacer seek y el video estaba pausado
+      // wasPlayingBeforeSeekRef === false significa "estaba pausado antes del seek"
+      if (wasPlayingBeforeSeekRef.current === false) {
+        console.log('Forcing pause - was paused before seek');
+        // Pequeño delay para asegurar que se ejecuta después del play automático
         setTimeout(() => {
           if (videoRef.current && !videoRef.current.paused) {
             videoRef.current.pause();
@@ -90,9 +91,6 @@ export function useVideo() {
     const video = videoRef.current;
     if (!video) return;
     
-    // Limpiar el flag de pausa forzada si el usuario quiere reproducir manualmente
-    shouldBePausedRef.current = false;
-    
     if (video.paused) {
       video.play().catch(() => {});
     } else {
@@ -109,12 +107,12 @@ export function useVideo() {
       clearTimeout(seekTimeoutRef.current);
     }
     
-    isSeekingRef.current = true;
-    shouldBePausedRef.current = video.paused;
+    // Guardar si estaba reproduciendo ANTES de pausar (true/false)
+    wasPlayingBeforeSeekRef.current = !video.paused;
     
-    console.log('Start seek, was paused:', shouldBePausedRef.current);
+    console.log('Start seek, was playing:', wasPlayingBeforeSeekRef.current);
     
-    // Pausar el video inmediatamente
+    // Pausar el video durante el arrastre
     video.pause();
   }, []);
 
@@ -122,36 +120,38 @@ export function useVideo() {
     const video = videoRef.current;
     if (!video) return;
     
-    console.log('End seek, setting time to:', time, 'should stay paused:', shouldBePausedRef.current);
+    const shouldPlay = wasPlayingBeforeSeekRef.current;
+    console.log('End seek, setting time to:', time, 'was playing:', shouldPlay);
     
     // Cambiar el tiempo
     video.currentTime = time;
     setCurrentTime(time);
     
-    // El navegador va a intentar reproducir automáticamente
-    // Mantener el flag shouldBePausedRef activo durante un tiempo
-    isSeekingRef.current = false;
-    
-    if (shouldBePausedRef.current) {
-      // Intentar pausar varias veces para asegurar
-      const attempts = [0, 50, 100, 200, 300];
-      attempts.forEach(delay => {
-        setTimeout(() => {
-          if (videoRef.current && !videoRef.current.paused) {
-            console.log('Forcing pause, attempt at', delay, 'ms');
-            videoRef.current.pause();
-          }
-        }, delay);
-      });
-      
-      // Limpiar el flag después de un tiempo razonable
+    if (shouldPlay === true) {
+      // Si estaba reproduciendo, reproducir de nuevo
       seekTimeoutRef.current = setTimeout(() => {
-        shouldBePausedRef.current = false;
-        console.log('Cleared shouldBePaused flag');
-      }, 500);
-    } else {
-      // Si debería reproducir, limpiar flag inmediatamente
-      shouldBePausedRef.current = false;
+        if (videoRef.current) {
+          videoRef.current.play().catch(() => {});
+        }
+        // Limpiar flag después de reproducir
+        wasPlayingBeforeSeekRef.current = null;
+      }, 50);
+    } else if (shouldPlay === false) {
+      // Si estaba pausado, mantener pausado
+      // El navegador intentará reproducir automáticamente, lo interceptamos en handlePlay
+      // Pero también forzamos pausa aquí por si acaso
+      seekTimeoutRef.current = setTimeout(() => {
+        if (videoRef.current && !videoRef.current.paused) {
+          console.log('Forcing pause after seek');
+          videoRef.current.pause();
+        }
+      }, 50);
+      
+      // Mantener el flag durante 300ms para interceptar el play automático del navegador
+      seekTimeoutRef.current = setTimeout(() => {
+        wasPlayingBeforeSeekRef.current = null;
+        console.log('Cleared seek flag');
+      }, 300);
     }
   }, []);
 
@@ -176,6 +176,12 @@ export function useVideo() {
   const loadVideo = useCallback((src) => {
     const video = videoRef.current;
     if (!video) return;
+    
+    // Resetear el flag de seek al cargar nuevo video
+    wasPlayingBeforeSeekRef.current = null;
+    if (seekTimeoutRef.current) {
+      clearTimeout(seekTimeoutRef.current);
+    }
     
     video.pause();
     video.src = src;
