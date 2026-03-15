@@ -23,6 +23,8 @@ function App() {
     volume,
     isMuted,
     togglePlay,
+    startSeek,
+    endSeek,
     seek,
     setVideoVolume,
     toggleMute,
@@ -131,7 +133,8 @@ function App() {
           volume={volume}
           isMuted={isMuted}
           onTogglePlay={togglePlay}
-          onSeek={seek}
+          onStartSeek={startSeek}
+          onEndSeek={endSeek}
           onVolumeChange={setVideoVolume}
           onToggleMute={toggleMute}
         />

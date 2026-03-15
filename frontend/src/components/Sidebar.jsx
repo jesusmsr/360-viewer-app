@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Folder, FolderOpen, Plus, X, ChevronLeft, ChevronRight } from 'lucide-react';
+import { useState, useMemo, useEffect } from 'react';
+import { Folder, FolderOpen, Plus, X, ChevronLeft, ChevronRight, ArrowUpDown, Calendar, FileText } from 'lucide-react';
 
 export function Sidebar({ 
   libraries, 
@@ -19,6 +19,8 @@ export function Sidebar({
   const [showModal, setShowModal] = useState(false);
   const [newLibName, setNewLibName] = useState('');
   const [newLibPath, setNewLibPath] = useState('');
+  const [sortBy, setSortBy] = useState('date'); // 'date' o 'name'
+  const [sortOrder, setSortOrder] = useState('desc'); // 'asc' o 'desc'
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -27,6 +29,46 @@ export function Sidebar({
       setNewLibName('');
       setNewLibPath('');
       setShowModal(false);
+    }
+  };
+
+  // Separar carpetas y videos
+  const folders = useMemo(() => items.filter(i => i.type === 'folder'), [items]);
+  const videos = useMemo(() => items.filter(i => i.type === 'video'), [items]);
+
+  // Debug: mostrar primer video para ver si tiene fecha
+  useEffect(() => {
+    if (videos.length > 0) {
+      console.log('Primer video:', videos[0]);
+    }
+  }, [videos]);
+
+  // Ordenar videos
+  const sortedVideos = useMemo(() => {
+    const sorted = [...videos];
+    sorted.sort((a, b) => {
+      if (sortBy === 'date') {
+        return sortOrder === 'desc' 
+          ? b.modified - a.modified 
+          : a.modified - b.modified;
+      } else {
+        return sortOrder === 'desc'
+          ? b.name.localeCompare(a.name)
+          : a.name.localeCompare(b.name);
+      }
+    });
+    return sorted;
+  }, [videos, sortBy, sortOrder]);
+
+  // Items ordenados: carpetas primero, luego videos ordenados
+  const sortedItems = [...folders, ...sortedVideos];
+
+  const toggleSort = (field) => {
+    if (sortBy === field) {
+      setSortOrder(prev => prev === 'desc' ? 'asc' : 'desc');
+    } else {
+      setSortBy(field);
+      setSortOrder(field === 'date' ? 'desc' : 'asc');
     }
   };
 
@@ -91,7 +133,7 @@ export function Sidebar({
           {/* Navegación de carpetas */}
           <div className="flex-1 overflow-y-auto p-4 min-w-[320px]">
             {/* Breadcrumbs */}
-            <div className="flex items-center flex-wrap gap-1 mb-4 p-2.5 bg-white/5 rounded-lg text-sm">
+            <div className="flex items-center flex-wrap gap-1 mb-3 p-2.5 bg-white/5 rounded-lg text-sm">
               {breadcrumbs.map((crumb, idx) => (
                 <span key={idx} className="flex items-center">
                   {idx > 0 && <span className="text-gray-600 mx-1">›</span>}
@@ -106,33 +148,76 @@ export function Sidebar({
                 </span>
               ))}
             </div>
+
+            {/* Controles de ordenación */}
+            <div className="flex items-center gap-2 mb-3 p-2 bg-white/5 rounded-lg">
+              <span className="text-xs text-gray-500 uppercase">Ordenar:</span>
+              <button
+                onClick={() => toggleSort('date')}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs transition-colors ${
+                  sortBy === 'date' ? 'bg-blue-500/20 text-blue-400' : 'hover:bg-white/10'
+                }`}
+              >
+                <Calendar size={12} />
+                Fecha
+                {sortBy === 'date' && (
+                  <span className="text-[10px]">{sortOrder === 'desc' ? '↓' : '↑'}</span>
+                )}
+              </button>
+              <button
+                onClick={() => toggleSort('name')}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs transition-colors ${
+                  sortBy === 'name' ? 'bg-blue-500/20 text-blue-400' : 'hover:bg-white/10'
+                }`}
+              >
+                <FileText size={12} />
+                Nombre
+                {sortBy === 'name' && (
+                  <span className="text-[10px]">{sortOrder === 'desc' ? '↓' : '↑'}</span>
+                )}
+              </button>
+            </div>
             
-            {/* Grid de items */}
-            <div className="grid grid-cols-3 gap-2">
-              {items.map((item, idx) => (
+            {/* Lista vertical de items */}
+            <div className="space-y-1">
+              {sortedItems.map((item, idx) => (
                 <button
                   key={idx}
                   onClick={() => item.type === 'folder' ? onNavigate(item.path) : onPlayVideo(item)}
-                  className={`aspect-square flex flex-col items-center justify-center p-3 rounded-xl transition-all hover:bg-white/10 hover:-translate-y-0.5 ${
+                  className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-all hover:bg-white/10 text-left ${
                     item.type === 'video' && currentVideo === item.path 
-                      ? 'bg-green-500/20 border-2 border-green-500/50' 
-                      : 'bg-white/5 border-2 border-transparent'
+                      ? 'bg-green-500/20 border border-green-500/50' 
+                      : 'bg-white/5 border border-transparent hover:border-white/10'
                   }`}
                 >
-                  <span className="text-3xl mb-1">
+                  <span className="text-2xl flex-shrink-0">
                     {item.type === 'folder' ? '📁' : '🎬'}
                   </span>
-                  <span className="text-xs text-center leading-tight line-clamp-2 overflow-hidden">
-                    {item.name}
-                  </span>
-                  <span className="text-[10px] text-gray-500 mt-1">
-                    {item.type === 'folder' ? `${item.item_count} items` : formatSize(item.size)}
-                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">
+                      {item.name}
+                    </p>
+                    <p className="text-xs text-gray-500 flex items-center gap-2 mt-0.5">
+                      {item.type === 'folder' ? (
+                        <span>{item.item_count} items</span>
+                      ) : (
+                        <>
+                          <span>{formatSize(item.size)}</span>
+                          {item.modified && (
+                            <>
+                              <span className="text-gray-600">•</span>
+                              <span>{formatDate(item.modified)}</span>
+                            </>
+                          )}
+                        </>
+                      )}
+                    </p>
+                  </div>
                 </button>
               ))}
             </div>
             
-            {items.length === 0 && (
+            {sortedItems.length === 0 && (
               <div className="text-center py-10 text-gray-500">
                 <div className="text-4xl mb-2 opacity-50">📂</div>
                 <p className="text-sm">Esta carpeta está vacía</p>
@@ -211,4 +296,14 @@ function formatSize(bytes) {
   const sizes = ['B', 'KB', 'MB', 'GB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
+function formatDate(timestamp) {
+  if (!timestamp) return '';
+  const date = new Date(timestamp * 1000);
+  return date.toLocaleDateString('es-ES', { 
+    day: '2-digit', 
+    month: '2-digit', 
+    year: 'numeric' 
+  });
 }
