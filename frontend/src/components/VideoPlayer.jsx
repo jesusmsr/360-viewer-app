@@ -88,7 +88,6 @@ export function VideoPlayer({ videoRef, currentVideo, currentVideoName }) {
         <div
           className='absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-center text-gray-500'
           style={{
-            zIndex: 100,
             pointerEvents: 'none',
             userSelect: 'none',
           }}

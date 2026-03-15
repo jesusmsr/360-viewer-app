@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Folder, FolderOpen, Plus, X, ChevronLeft, ChevronRight, ArrowUpDown, Calendar, FileText } from 'lucide-react';
+import { Folder, FolderOpen, Plus, X, ChevronLeft, ChevronRight, ArrowUpDown, Calendar, FileText, Users, RefreshCw, Link, Wifi, WifiOff } from 'lucide-react';
 
 export function Sidebar({ 
   libraries, 
@@ -8,6 +8,12 @@ export function Sidebar({
   onSelectLibrary, 
   onAddLibrary, 
   onDeleteLibrary,
+  peers,
+  selectedPeer,
+  onSelectPeer,
+  onAddPeer,
+  onRemovePeer,
+  onSyncPeer,
   currentPath,
   breadcrumbs,
   items,
@@ -19,8 +25,12 @@ export function Sidebar({
 }) {
   const { t } = useTranslation();
   const [showModal, setShowModal] = useState(false);
+  const [showPeerModal, setShowPeerModal] = useState(false);
   const [newLibName, setNewLibName] = useState('');
   const [newLibPath, setNewLibPath] = useState('');
+  const [newPeerName, setNewPeerName] = useState('');
+  const [newPeerUrl, setNewPeerUrl] = useState('');
+  const [newPeerToken, setNewPeerToken] = useState('');
   const [sortBy, setSortBy] = useState('date');
   const [sortOrder, setSortOrder] = useState('desc');
 
@@ -31,6 +41,22 @@ export function Sidebar({
       setNewLibName('');
       setNewLibPath('');
       setShowModal(false);
+    }
+  };
+
+  const handleAddPeer = (e) => {
+    e.preventDefault();
+    if (newPeerName && newPeerUrl) {
+      onAddPeer({
+        name: newPeerName,
+        url: newPeerUrl,
+        token: newPeerToken,
+        my_id: 'me'
+      });
+      setNewPeerName('');
+      setNewPeerUrl('');
+      setNewPeerToken('');
+      setShowPeerModal(false);
     }
   };
 
@@ -122,6 +148,82 @@ export function Sidebar({
             >
               <Plus size={16} />
               {t('sidebar.addLibrary')}
+            </button>
+          </div>
+          
+          {/* Peers / Amigos conectados */}
+          <div className="p-4 border-b border-dark-600 min-w-[320px]">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-xs uppercase text-gray-500 tracking-wider flex items-center gap-2">
+                <Users size={14} />
+                {t('sidebar.peersTitle') || 'Amigos'}
+              </p>
+              <button 
+                onClick={() => onSyncPeer && peers && Object.keys(peers).forEach(id => onSyncPeer(id))}
+                className="p-1 rounded hover:bg-white/10 text-gray-500 hover:text-gray-300"
+                title={t('sidebar.syncAll') || 'Sincronizar todos'}
+              >
+                <RefreshCw size={14} />
+              </button>
+            </div>
+            
+            <div className="space-y-1">
+              {/* Mi Biblioteca (Local) */}
+              <button
+                onClick={() => onSelectPeer('local')}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
+                  selectedPeer === 'local' ? 'bg-blue-500/20 text-blue-400' : 'hover:bg-white/5'
+                }`}
+              >
+                <FolderOpen size={20} />
+                <span className="flex-1 text-left text-sm">{t('sidebar.myLibrary') || 'Mi Biblioteca'}</span>
+              </button>
+              
+              {/* Peers conectados */}
+              {Object.entries(peers || {}).map(([id, peer]) => (
+                <div key={id} className="group relative">
+                  <button
+                    onClick={() => onSelectPeer(id)}
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
+                      selectedPeer === id ? 'bg-blue-500/20 text-blue-400' : 'hover:bg-white/5'
+                    }`}
+                  >
+                    {peer.status === 'online' ? (
+                      <Wifi size={18} className="text-green-400" />
+                    ) : (
+                      <WifiOff size={18} className="text-gray-500" />
+                    )}
+                    <span className="flex-1 text-left text-sm truncate">{peer.name}</span>
+                    {peer.video_count > 0 && (
+                      <span className="text-xs text-gray-500">{peer.video_count}</span>
+                    )}
+                  </button>
+                  <div className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 flex items-center gap-1">
+                    <button
+                      onClick={() => onSyncPeer(id)}
+                      className="p-1.5 rounded text-blue-400 hover:bg-blue-500/20 transition-all"
+                      title={t('sidebar.sync') || 'Sincronizar'}
+                    >
+                      <RefreshCw size={12} />
+                    </button>
+                    <button
+                      onClick={() => onRemovePeer(id)}
+                      className="p-1.5 rounded text-red-400 hover:bg-red-500/20 transition-all"
+                      title={t('sidebar.deletePeer') || 'Eliminar'}
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+            
+            <button
+              onClick={() => setShowPeerModal(true)}
+              className="w-full mt-3 py-2.5 border border-dashed border-gray-600 rounded-lg text-gray-400 hover:border-gray-500 hover:text-gray-300 hover:bg-white/5 transition-all flex items-center justify-center gap-2 text-sm"
+            >
+              <Link size={16} />
+              {t('sidebar.addPeer') || 'Conectar amigo'}
             </button>
           </div>
           
@@ -275,6 +377,66 @@ export function Sidebar({
                   className="flex-1 px-4 py-2.5 bg-blue-600 rounded-lg hover:bg-blue-500 transition-colors"
                 >
                   {t('modal.add')}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal añadir peer */}
+      {showPeerModal && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50" onClick={() => setShowPeerModal(false)}>
+          <div className="bg-dark-800 border border-dark-600 rounded-xl p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold mb-4">🔗 {t('modal.addPeer') || 'Conectar amigo'}</h3>
+            <p className="text-sm text-gray-400 mb-4">
+              {t('modal.addPeerDesc') || 'Conecta con el servidor de un amigo para ver su biblioteca compartida.'}
+            </p>
+            <form onSubmit={handleAddPeer} className="space-y-4">
+              <div>
+                <label className="block text-sm text-gray-400 mb-1.5">{t('modal.peerName') || 'Nombre'}</label>
+                <input
+                  type="text"
+                  value={newPeerName}
+                  onChange={(e) => setNewPeerName(e.target.value)}
+                  placeholder={t('modal.peerNamePlaceholder') || 'Ej: Biblioteca de Juan'}
+                  className="w-full px-4 py-2.5 bg-dark-900 border border-dark-600 rounded-lg text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-400 mb-1.5">{t('modal.peerUrl') || 'URL del servidor'}</label>
+                <input
+                  type="text"
+                  value={newPeerUrl}
+                  onChange={(e) => setNewPeerUrl(e.target.value)}
+                  placeholder={t('modal.peerUrlPlaceholder') || 'Ej: http://192.168.1.50:8080 o https://amigo.duckdns.org'}
+                  className="w-full px-4 py-2.5 bg-dark-900 border border-dark-600 rounded-lg text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-400 mb-1.5">{t('modal.peerToken') || 'Token (opcional)'}</label>
+                <input
+                  type="text"
+                  value={newPeerToken}
+                  onChange={(e) => setNewPeerToken(e.target.value)}
+                  placeholder={t('modal.peerTokenPlaceholder') || 'Token de autenticación si es requerido'}
+                  className="w-full px-4 py-2.5 bg-dark-900 border border-dark-600 rounded-lg text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
+                />
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowPeerModal(false)}
+                  className="flex-1 px-4 py-2.5 bg-white/10 rounded-lg hover:bg-white/15 transition-colors"
+                >
+                  {t('modal.cancel')}
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 px-4 py-2.5 bg-blue-600 rounded-lg hover:bg-blue-500 transition-colors"
+                >
+                  {t('modal.connect') || 'Conectar'}
                 </button>
               </div>
             </form>

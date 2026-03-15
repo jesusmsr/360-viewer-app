@@ -4,6 +4,8 @@ const API_BASE = '/api';
 
 export function useLibraries() {
   const [libraries, setLibraries] = useState({});
+  const [peers, setPeers] = useState({});
+  const [selectedPeer, setSelectedPeer] = useState('local'); // 'local' o peer_id
   const [currentPath, setCurrentPath] = useState('');
   const [items, setItems] = useState([]);
   const [breadcrumbs, setBreadcrumbs] = useState([{ name: '📁 Raíz', path: '' }]);
@@ -21,31 +23,133 @@ export function useLibraries() {
     }
   }, []);
 
+  // Cargar peers (amigos conectados)
+  const fetchPeers = useCallback(async () => {
+    try {
+      const response = await fetch(`${API_BASE}/peers`);
+      const data = await response.json();
+      setPeers(data);
+    } catch (err) {
+      console.error('Error cargando peers:', err);
+    }
+  }, []);
+
   useEffect(() => {
     fetchLibraries();
-  }, [fetchLibraries]);
+    fetchPeers();
+    // Refrescar peers cada 30 segundos
+    const interval = setInterval(fetchPeers, 30000);
+    return () => clearInterval(interval);
+  }, [fetchLibraries, fetchPeers]);
 
-  // Navegar directorio
-  const browseDirectory = useCallback(async (path = '') => {
+  // Navegar directorio (local o de un peer)
+  const browseDirectory = useCallback(async (path = '', peerId = null) => {
     setLoading(true);
+    const targetPeer = peerId || selectedPeer;
+    
     try {
-      const response = await fetch(`${API_BASE}/browse?path=${encodeURIComponent(path)}`);
-      const data = await response.json();
-      
-      if (data.error) {
-        setError(data.error);
-        return;
+      if (targetPeer === 'local') {
+        // Catálogo local
+        const response = await fetch(`${API_BASE}/browse?path=${encodeURIComponent(path)}`);
+        const data = await response.json();
+        
+        if (data.error) {
+          setError(data.error);
+          return;
+        }
+        
+        setItems(data.items);
+        setBreadcrumbs(data.breadcrumbs);
+      } else {
+        // Catálogo de un peer (desde el caché de nuestro backend)
+        const response = await fetch(`${API_BASE}/federation/unified`);
+        const data = await response.json();
+        
+        // Buscar el peer específico
+        const peerData = data.peers.find(p => p.peer_id === targetPeer);
+        
+        if (peerData) {
+          // Mostrar items del peer
+          const peerItems = peerData.items.map(item => ({
+            ...item,
+            type: 'video',
+            source: targetPeer,
+            peer_url: peerData.peer_url
+          }));
+          setItems(peerItems);
+          setBreadcrumbs([{ name: `📁 ${peerData.peer_name}`, path: '' }]);
+        } else {
+          setItems([]);
+          setError('Peer no disponible');
+        }
       }
       
-      setItems(data.items);
-      setBreadcrumbs(data.breadcrumbs);
       setCurrentPath(path);
+      setSelectedPeer(targetPeer);
     } catch (err) {
       setError('Error navegando directorio');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [selectedPeer]);
+
+  // Añadir un peer (conectar con amigo)
+  const addPeer = useCallback(async (peerData) => {
+    try {
+      const response = await fetch(`${API_BASE}/peers`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(peerData)
+      });
+      
+      if (response.ok) {
+        await fetchPeers();
+        return { success: true };
+      } else {
+        const error = await response.json();
+        return { success: false, error: error.error };
+      }
+    } catch (err) {
+      return { success: false, error: 'Error de conexión' };
+    }
+  }, [fetchPeers]);
+
+  // Eliminar un peer
+  const removePeer = useCallback(async (peerId) => {
+    try {
+      const response = await fetch(`${API_BASE}/peers/${peerId}`, {
+        method: 'DELETE'
+      });
+      
+      if (response.ok) {
+        await fetchPeers();
+        if (selectedPeer === peerId) {
+          setSelectedPeer('local');
+        }
+        return true;
+      }
+      return false;
+    } catch (err) {
+      return false;
+    }
+  }, [fetchPeers, selectedPeer]);
+
+  // Forzar sincronización de un peer
+  const syncPeer = useCallback(async (peerId) => {
+    try {
+      const response = await fetch(`${API_BASE}/peers/${peerId}/sync`, {
+        method: 'POST'
+      });
+      
+      if (response.ok) {
+        await fetchPeers();
+        return { success: true };
+      }
+      return { success: false };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  }, [fetchPeers]);
 
   // Añadir biblioteca
   const addLibrary = useCallback(async (name, path) => {
@@ -87,6 +191,9 @@ export function useLibraries() {
 
   return {
     libraries,
+    peers,
+    selectedPeer,
+    setSelectedPeer,
     currentPath,
     items,
     breadcrumbs,
@@ -94,6 +201,10 @@ export function useLibraries() {
     error,
     browseDirectory,
     addLibrary,
-    deleteLibrary
+    deleteLibrary,
+    addPeer,
+    removePeer,
+    syncPeer,
+    refreshPeers: fetchPeers
   };
 }
