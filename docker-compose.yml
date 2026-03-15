@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  360-viewer:
+    build: .
+    container_name: 360-viewer
+    restart: unless-stopped
+    ports:
+      - '8080:8080'
+    volumes:
+      # Monta tu directorio de videos del NAS aquí
+      - E:\proyects\360-viewer\videos:/videos:ro
+      # Persistir las bibliotecas creadas
+      - 360-viewer-data:/app/data
+    environment:
+      - VIDEOS_PATH=/videos
+      - LIBRARIES_FILE=/app/data/.libraries.json
+    networks:
+      - 360-network
+
+volumes:
+  360-viewer-data:
+    driver: local
+
+networks:
+  360-network:
+    driver: bridge

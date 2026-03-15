@@ -1,0 +1,836 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>360° Video Viewer - Bibliotecas</title>
+    <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0a0a0a;
+            color: #fff;
+            overflow: hidden;
+            height: 100vh;
+        }
+
+        /* Layout principal */
+        #app {
+            display: flex;
+            height: 100vh;
+        }
+
+        /* Sidebar de bibliotecas */
+        #sidebar {
+            width: 320px;
+            background: #1a1a1a;
+            border-right: 1px solid #333;
+            display: flex;
+            flex-direction: column;
+            z-index: 100;
+        }
+
+        #sidebar-header {
+            padding: 20px;
+            border-bottom: 1px solid #333;
+        }
+
+        #sidebar-header h1 {
+            font-size: 1.2rem;
+            font-weight: 600;
+            margin-bottom: 5px;
+        }
+
+        #sidebar-header p {
+            font-size: 0.85rem;
+            color: #888;
+        }
+
+        /* Bibliotecas */
+        #libraries-section {
+            padding: 15px;
+            border-bottom: 1px solid #333;
+        }
+
+        .section-title {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            color: #666;
+            margin-bottom: 10px;
+            letter-spacing: 0.5px;
+        }
+
+        #libraries-list {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .library-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 12px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            position: relative;
+        }
+
+        .library-item:hover {
+            background: rgba(255,255,255,0.05);
+        }
+
+        .library-item.active {
+            background: rgba(0,102,204,0.2);
+            color: #4da3ff;
+        }
+
+        .library-icon {
+            font-size: 1.2rem;
+        }
+
+        .library-name {
+            flex: 1;
+            font-size: 0.95rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .library-delete {
+            opacity: 0;
+            transition: opacity 0.2s;
+            padding: 4px 8px;
+            border-radius: 4px;
+            background: transparent;
+            border: none;
+            color: #ff4444;
+            cursor: pointer;
+            font-size: 0.8rem;
+        }
+
+        .library-item:hover .library-delete {
+            opacity: 1;
+        }
+
+        .library-delete:hover {
+            background: rgba(255,68,68,0.2);
+        }
+
+        /* Botón añadir biblioteca */
+        #add-library-btn {
+            margin-top: 10px;
+            padding: 10px;
+            background: rgba(255,255,255,0.05);
+            border: 1px dashed #555;
+            border-radius: 8px;
+            color: #888;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        #add-library-btn:hover {
+            background: rgba(255,255,255,0.1);
+            border-color: #777;
+            color: #aaa;
+        }
+
+        /* Navegación de carpetas */
+        #browser-section {
+            flex: 1;
+            overflow-y: auto;
+            padding: 15px;
+        }
+
+        /* Breadcrumbs */
+        #breadcrumbs {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            flex-wrap: wrap;
+            margin-bottom: 15px;
+            padding: 10px;
+            background: rgba(255,255,255,0.03);
+            border-radius: 8px;
+            font-size: 0.9rem;
+        }
+
+        .breadcrumb-item {
+            cursor: pointer;
+            color: #888;
+            transition: color 0.2s;
+        }
+
+        .breadcrumb-item:hover {
+            color: #fff;
+        }
+
+        .breadcrumb-separator {
+            color: #555;
+        }
+
+        .breadcrumb-item:last-child {
+            color: #fff;
+            font-weight: 500;
+        }
+
+        /* Grid de items */
+        #items-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+            gap: 10px;
+        }
+
+        .item-card {
+            aspect-ratio: 1;
+            background: rgba(255,255,255,0.05);
+            border-radius: 10px;
+            padding: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            gap: 8px;
+            border: 2px solid transparent;
+        }
+
+        .item-card:hover {
+            background: rgba(255,255,255,0.1);
+            transform: translateY(-2px);
+        }
+
+        .item-card.selected {
+            border-color: #0066cc;
+            background: rgba(0,102,204,0.15);
+        }
+
+        .item-card.playing {
+            border-color: #00cc66;
+            background: rgba(0,204,102,0.15);
+        }
+
+        .item-icon {
+            font-size: 2.5rem;
+            line-height: 1;
+        }
+
+        .item-name {
+            font-size: 0.8rem;
+            line-height: 1.3;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            max-width: 100%;
+        }
+
+        .item-meta {
+            font-size: 0.7rem;
+            color: #666;
+        }
+
+        /* Área de video */
+        #video-area {
+            flex: 1;
+            position: relative;
+            background: #000;
+        }
+
+        a-scene {
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Controles flotantes */
+        #video-controls {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            display: flex;
+            gap: 10px;
+            z-index: 200;
+        }
+
+        .control-btn {
+            padding: 10px 15px;
+            background: rgba(0,0,0,0.7);
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 8px;
+            color: #fff;
+            cursor: pointer;
+            font-size: 0.9rem;
+            backdrop-filter: blur(10px);
+            transition: all 0.2s;
+        }
+
+        .control-btn:hover {
+            background: rgba(255,255,255,0.1);
+        }
+
+        /* Modal añadir biblioteca */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.8);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .modal-overlay.active {
+            display: flex;
+        }
+
+        .modal {
+            background: #1a1a1a;
+            border-radius: 12px;
+            padding: 25px;
+            width: 90%;
+            max-width: 400px;
+            border: 1px solid #333;
+        }
+
+        .modal h3 {
+            margin-bottom: 20px;
+            font-size: 1.1rem;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 0.9rem;
+            color: #aaa;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 10px 12px;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid #444;
+            border-radius: 6px;
+            color: #fff;
+            font-size: 0.95rem;
+        }
+
+        .form-group input:focus {
+            outline: none;
+            border-color: #0066cc;
+        }
+
+        .modal-buttons {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        .modal-btn {
+            flex: 1;
+            padding: 10px;
+            border-radius: 6px;
+            border: none;
+            cursor: pointer;
+            font-size: 0.95rem;
+            transition: all 0.2s;
+        }
+
+        .modal-btn.primary {
+            background: #0066cc;
+            color: #fff;
+        }
+
+        .modal-btn.primary:hover {
+            background: #0052a3;
+        }
+
+        .modal-btn.secondary {
+            background: rgba(255,255,255,0.1);
+            color: #fff;
+        }
+
+        .modal-btn.secondary:hover {
+            background: rgba(255,255,255,0.15);
+        }
+
+        /* Loading */
+        #loading {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 500;
+            display: none;
+        }
+
+        #loading.active {
+            display: block;
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid rgba(255,255,255,0.2);
+            border-top-color: #fff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Empty state */
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+
+        .empty-state-icon {
+            font-size: 3rem;
+            margin-bottom: 15px;
+            opacity: 0.5;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            #sidebar {
+                position: fixed;
+                left: -320px;
+                height: 100vh;
+                transition: left 0.3s;
+            }
+            
+            #sidebar.open {
+                left: 0;
+            }
+        }
+
+        /* Toggle sidebar en móvil */
+        #menu-toggle {
+            display: none;
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 300;
+            padding: 10px;
+            background: rgba(0,0,0,0.7);
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 8px;
+            color: #fff;
+            cursor: pointer;
+        }
+
+        @media (max-width: 768px) {
+            #menu-toggle {
+                display: block;
+            }
+        }
+
+        #instructions {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.7);
+            padding: 10px 20px;
+            border-radius: 20px;
+            font-size: 13px;
+            pointer-events: none;
+            z-index: 100;
+            white-space: nowrap;
+        }
+    </style>
+</head>
+<body>
+    <div id="loading"><div class="spinner"></div></div>
+    
+    <div id="app">
+        <!-- Sidebar -->
+        <aside id="sidebar">
+            <div id="sidebar-header">
+                <h1>🎥 360° Viewer</h1>
+                <p>Bibliotecas de video</p>
+            </div>
+            
+            <div id="libraries-section">
+                <div class="section-title">Mis Bibliotecas</div>
+                <div id="libraries-list">
+                    <!-- Se llena dinámicamente -->
+                </div>
+                <button id="add-library-btn" onclick="openAddLibraryModal()">
+                    <span>+</span> Añadir biblioteca
+                </button>
+            </div>
+            
+            <div id="browser-section">
+                <div id="breadcrumbs">
+                    <span class="breadcrumb-item" onclick="navigateTo('')">📁 Raíz</span>
+                </div>
+                <div id="items-grid">
+                    <!-- Se llena dinámicamente -->
+                </div>
+            </div>
+        </aside>
+        
+        <!-- Área de video -->
+        <main id="video-area">
+            <button id="menu-toggle" onclick="toggleSidebar()">☰</button>
+            
+            <div id="video-controls">
+                <button class="control-btn" onclick="togglePlay()">⏯️ Play/Pausa</button>
+                <button class="control-btn" onclick="video360.muted = !video360.muted">
+                    🔊 Sonido
+                </button>
+            </div>
+            
+            <div id="instructions">
+                🖱️ Arrastra para rotar | 📱 Gira móvil | 🥽 VR para gafas
+            </div>
+            
+            <a-scene embedded vr-mode-ui="enabled: true">
+                <a-assets>
+                    <video id="video360" autoplay loop crossorigin="anonymous" playsinline></video>
+                </a-assets>
+                
+                <a-videosphere src="#video360" rotation="0 -90 0"></a-videosphere>
+                <a-camera look-controls wasd-controls="enabled: false"></a-camera>
+            </a-scene>
+        </main>
+    </div>
+    
+    <!-- Modal añadir biblioteca -->
+    <div id="add-library-modal" class="modal-overlay" onclick="closeModalOnOverlay(event)">
+        <div class="modal" onclick="event.stopPropagation()">
+            <h3>➕ Añadir Biblioteca</h3>
+            <div class="form-group">
+                <label>Nombre</label>
+                <input type="text" id="lib-name" placeholder="Mis Videos de Viaje">
+            </div>
+            <div class="form-group">
+                <label>Ruta de carpeta (relativa a /videos)</label>
+                <input type="text" id="lib-path" placeholder="viajes/2024">
+            </div>
+            <div class="modal-buttons">
+                <button class="modal-btn secondary" onclick="closeAddLibraryModal()">Cancelar</button>
+                <button class="modal-btn primary" onclick="addLibrary()">Añadir</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const video360 = document.getElementById('video360');
+        const librariesList = document.getElementById('libraries-list');
+        const itemsGrid = document.getElementById('items-grid');
+        const breadcrumbs = document.getElementById('breadcrumbs');
+        const loading = document.getElementById('loading');
+        
+        let currentLibrary = null;
+        let currentPath = '';
+        let currentVideo = null;
+        
+        // ===== CARGAR DATOS =====
+        
+        async function loadLibraries() {
+            try {
+                const response = await fetch('/api/libraries');
+                const libraries = await response.json();
+                
+                librariesList.innerHTML = '';
+                
+                // Opción "Todas las carpetas" (raíz)
+                const rootItem = document.createElement('div');
+                rootItem.className = `library-item ${!currentLibrary ? 'active' : ''}`;
+                rootItem.innerHTML = `
+                    <span class="library-icon">🗂️</span>
+                    <span class="library-name">Todas las carpetas</span>
+                `;
+                rootItem.onclick = () => selectLibrary(null);
+                librariesList.appendChild(rootItem);
+                
+                // Bibliotecas guardadas
+                Object.values(libraries).forEach(lib => {
+                    const item = document.createElement('div');
+                    item.className = `library-item ${currentLibrary === lib.id ? 'active' : ''}`;
+                    item.innerHTML = `
+                        <span class="library-icon">📁</span>
+                        <span class="library-name">${escapeHtml(lib.name)}</span>
+                        <button class="library-delete" onclick="deleteLibrary('${lib.id}', event)" title="Eliminar">×</button>
+                    `;
+                    item.onclick = (e) => {
+                        if (!e.target.classList.contains('library-delete')) {
+                            selectLibrary(lib.id);
+                        }
+                    };
+                    librariesList.appendChild(item);
+                });
+            } catch (e) {
+                console.error('Error cargando bibliotecas:', e);
+            }
+        }
+        
+        async function browseDirectory(path = '') {
+            showLoading(true);
+            try {
+                const response = await fetch(`/api/browse?path=${encodeURIComponent(path)}`);
+                const data = await response.json();
+                
+                if (data.error) {
+                    console.error(data.error);
+                    return;
+                }
+                
+                // Actualizar breadcrumbs
+                breadcrumbs.innerHTML = data.breadcrumbs.map((crumb, index) => {
+                    const isLast = index === data.breadcrumbs.length - 1;
+                    return `
+                        ${index > 0 ? '<span class="breadcrumb-separator">›</span>' : ''}
+                        <span class="breadcrumb-item ${isLast ? 'active' : ''}" onclick="navigateTo('${crumb.path}')">
+                            ${escapeHtml(crumb.name)}
+                        </span>
+                    `;
+                }).join('');
+                
+                // Mostrar items
+                itemsGrid.innerHTML = '';
+                
+                if (data.items.length === 0) {
+                    itemsGrid.innerHTML = `
+                        <div class="empty-state" style="grid-column: 1/-1;">
+                            <div class="empty-state-icon">📂</div>
+                            <p>Esta carpeta está vacía</p>
+                        </div>
+                    `;
+                } else {
+                    data.items.forEach(item => {
+                        const card = document.createElement('div');
+                        card.className = 'item-card';
+                        if (item.type === 'video' && currentVideo === item.path) {
+                            card.classList.add('playing');
+                        }
+                        
+                        const icon = item.type === 'folder' ? '📁' : '🎬';
+                        const meta = item.type === 'folder' 
+                            ? `${item.item_count} items` 
+                            : formatSize(item.size);
+                        
+                        card.innerHTML = `
+                            <span class="item-icon">${icon}</span>
+                            <span class="item-name">${escapeHtml(item.name)}</span>
+                            <span class="item-meta">${meta}</span>
+                        `;
+                        
+                        card.onclick = () => {
+                            if (item.type === 'folder') {
+                                navigateTo(item.path);
+                            } else {
+                                playVideo(item);
+                            }
+                        };
+                        
+                        itemsGrid.appendChild(card);
+                    });
+                }
+                
+                currentPath = path;
+            } catch (e) {
+                console.error('Error navegando:', e);
+            } finally {
+                showLoading(false);
+            }
+        }
+        
+        // ===== ACCIONES =====
+        
+        function selectLibrary(libraryId) {
+            currentLibrary = libraryId;
+            loadLibraries();
+            
+            // Navegar a la raíz de la biblioteca o del sistema
+            navigateTo('');
+        }
+        
+        function navigateTo(path) {
+            // Si hay una biblioteca seleccionada, añadir su path base
+            if (currentLibrary) {
+                loadLibraryBasePath().then(basePath => {
+                    const fullPath = basePath ? `${basePath}/${path}`.replace(/^\/+/, '') : path;
+                    browseDirectory(fullPath);
+                });
+            } else {
+                browseDirectory(path);
+            }
+        }
+        
+        async function loadLibraryBasePath() {
+            if (!currentLibrary) return '';
+            try {
+                const response = await fetch('/api/libraries');
+                const libraries = await response.json();
+                return libraries[currentLibrary]?.path || '';
+            } catch (e) {
+                return '';
+            }
+        }
+        
+        function playVideo(videoItem) {
+            currentVideo = videoItem.path;
+            
+            // Actualizar UI
+            document.querySelectorAll('.item-card').forEach(card => {
+                card.classList.remove('playing');
+            });
+            event.currentTarget.classList.add('playing');
+            
+            // Cargar video
+            video360.pause();
+            video360.src = videoItem.path;
+            video360.load();
+            
+            video360.oncanplay = () => {
+                video360.play().catch(() => {
+                    console.log('Autoplay bloqueado');
+                });
+            };
+        }
+        
+        function togglePlay() {
+            if (video360.paused) {
+                video360.play();
+            } else {
+                video360.pause();
+            }
+        }
+        
+        // ===== GESTIÓN DE BIBLIOTECAS =====
+        
+        function openAddLibraryModal() {
+            document.getElementById('add-library-modal').classList.add('active');
+            document.getElementById('lib-name').focus();
+        }
+        
+        function closeAddLibraryModal() {
+            document.getElementById('add-library-modal').classList.remove('active');
+            document.getElementById('lib-name').value = '';
+            document.getElementById('lib-path').value = '';
+        }
+        
+        function closeModalOnOverlay(event) {
+            if (event.target.id === 'add-library-modal') {
+                closeAddLibraryModal();
+            }
+        }
+        
+        async function addLibrary() {
+            const name = document.getElementById('lib-name').value.trim();
+            const path = document.getElementById('lib-path').value.trim();
+            
+            if (!name || !path) {
+                alert('Por favor completa todos los campos');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/libraries', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, path })
+                });
+                
+                if (response.ok) {
+                    closeAddLibraryModal();
+                    loadLibraries();
+                } else {
+                    const error = await response.json();
+                    alert(error.error || 'Error al añadir biblioteca');
+                }
+            } catch (e) {
+                alert('Error de conexión');
+            }
+        }
+        
+        async function deleteLibrary(id, event) {
+            event.stopPropagation();
+            
+            if (!confirm('¿Eliminar esta biblioteca?')) return;
+            
+            try {
+                const response = await fetch(`/api/libraries/${id}`, {
+                    method: 'DELETE'
+                });
+                
+                if (response.ok) {
+                    if (currentLibrary === id) {
+                        currentLibrary = null;
+                        navigateTo('');
+                    }
+                    loadLibraries();
+                }
+            } catch (e) {
+                console.error('Error eliminando:', e);
+            }
+        }
+        
+        // ===== UTILIDADES =====
+        
+        function showLoading(show) {
+            loading.classList.toggle('active', show);
+        }
+        
+        function formatSize(bytes) {
+            if (bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        function toggleSidebar() {
+            document.getElementById('sidebar').classList.toggle('open');
+        }
+        
+        // ===== INICIALIZACIÓN =====
+        
+        document.addEventListener('DOMContentLoaded', () => {
+            loadLibraries();
+            browseDirectory('');
+        });
+        
+        // Permitir play con click en el video
+        document.addEventListener('click', () => {
+            if (video360.paused && video360.src) {
+                video360.play().catch(() => {});
+            }
+        }, { once: true });
+    </script>
+</body>
+</html>
