@@ -1,5 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 
+// Detectar si estamos en desarrollo o producción
+const VIDEO_BASE = import.meta.env.DEV ? 'http://localhost:8080/videos' : '/videos';
+
 export function useVideo() {
   const videoRef = useRef(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -183,8 +186,12 @@ export function useVideo() {
       clearTimeout(seekTimeoutRef.current);
     }
     
+    // Construir URL completa del video
+    const videoUrl = src.startsWith('http') ? src : `${VIDEO_BASE}/${src}`;
+    console.log('Loading video:', videoUrl);
+    
     video.pause();
-    video.src = src;
+    video.src = videoUrl;
     video.load();
     
     video.oncanplay = () => {

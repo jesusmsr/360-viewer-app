@@ -74,7 +74,7 @@ function App() {
     (videoItem) => {
       setCurrentVideo(videoItem.path);
       setCurrentVideoName(videoItem.name);
-      loadVideo(`/videos/${videoItem.path}`);
+      loadVideo(videoItem.path);  // Sin prefijo, useVideo lo añade
     },
     [loadVideo],
   );

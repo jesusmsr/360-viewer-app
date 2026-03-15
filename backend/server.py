@@ -4,7 +4,7 @@ Servidor para 360° Video Viewer
 Sistema de bibliotecas con navegación de carpetas
 """
 from flask import Flask, send_from_directory, jsonify, request, send_file
-from flask_cors import CORS
+from flask_cors import CORS, cross_origin
 import os
 from pathlib import Path
 import json
@@ -159,6 +159,7 @@ def get_folder_contents():
 
 
 @app.route('/videos/<path:filename>')
+@cross_origin(origins="*")
 def serve_video(filename):
     """Sirve archivos de video"""
     video_path = Path(VIDEOS_BASE_DIR) / filename
@@ -181,7 +182,8 @@ def health():
     return jsonify({'status': 'ok', 'videos_path': VIDEOS_BASE_DIR})
 
 
-@app.route('/api/browse', methods=['GET'])
+@app.route('/api/browse', methods=['GET', 'OPTIONS'])
+@cross_origin(origins="*", supports_credentials=True)
 def browse():
     """Navega por carpetas (versión GET para el frontend)"""
     folder_path = request.args.get('path', '')
@@ -278,9 +280,16 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--host', default='0.0.0.0', help='Host (default: 0.0.0.0)')
     parser.add_argument('--port', type=int, default=8080, help='Puerto (default: 8080)')
+    parser.add_argument('--videos', help='Directorio de videos (default: /videos o VIDEOS_PATH)')
     args = parser.parse_args()
     
-    print(f"📁 Directorio base: {VIDEOS_BASE_DIR}")
+    # Si se pasa --videos, actualizar VIDEOS_BASE_DIR
+    if args.videos:
+        VIDEOS_BASE_DIR = args.videos
+        print(f"📁 Directorio base (argumento): {VIDEOS_BASE_DIR}")
+    else:
+        print(f"📁 Directorio base: {VIDEOS_BASE_DIR}")
+    
     print(f"📚 Bibliotecas en: {LIBRARIES_FILE}")
     print(f"🌐 Servidor en: http://{args.host}:{args.port}")
     
