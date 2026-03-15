@@ -4,11 +4,19 @@ Servidor para 360° Video Viewer
 Sistema de bibliotecas con navegación de carpetas
 """
 from flask import Flask, send_from_directory, jsonify, request
+from flask_cors import CORS
 import os
 from pathlib import Path
 import json
 
 app = Flask(__name__)
+
+# Habilitar CORS si está configurado
+if os.environ.get('FLASK_CORS'):
+    CORS(app, resources={
+        r"/api/*": {"origins": "*"},
+        r"/videos/*": {"origins": "*"}
+    })
 
 # Configuración
 VIDEOS_BASE_DIR = os.environ.get('VIDEOS_PATH', '/videos')

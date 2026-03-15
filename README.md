@@ -1,155 +1,128 @@
-# 🎥 360° Video Viewer
+# 🎥 360° Video Viewer - React + Tailwind
 
-Aplicación web ligera para visualizar videos 360° con **sistema de bibliotecas** y navegación por carpetas.
+Versión moderna con **React**, **Vite** y **Tailwind CSS**.
 
 ## ✨ Características
 
-- ✅ **Sistema de Bibliotecas**: Crea bibliotecas virtuales apuntando a carpetas específicas
-- ✅ **Navegación por Carpetas**: Explora tu colección como un explorador de archivos
-- ✅ **Reproducción 360°**: Videos equirectangulares con controles intuitivos
-- ✅ **Múltiples formatos**: MP4, WebM, MOV, MKV, AVI
-- ✅ **VR Ready**: Modo VR para gafas compatibles (WebXR)
-- ✅ **Dockerizado**: Listo para TrueNAS Scale
+- ⚛️ **React 18** con Hooks
+- 🎨 **Tailwind CSS** para estilos modernos
+- ⚡ **Vite** para desarrollo rápido
+- 📚 **Sistema de Bibliotecas** con navegación por carpetas
+- 🎬 **Reproductor 360°** con A-Frame
+- 🎮 **Controles completos**: Play/Pause, Timeline, Volumen
+- 📱 **Responsive**: Sidebar colapsable
+- 🐳 **Dockerizado** para TrueNAS Scale
 
-## 📁 Sistema de Bibliotecas
+## 📁 Estructura
 
-En lugar de mostrar todos los videos mezclados, organiza tu contenido:
-
-1. **Añade bibliotecas** apuntando a subcarpetas específicas
-2. **Navega** por carpetas con breadcrumbs
-3. **Visualiza** videos con miniaturas de carpeta
-
-Ejemplo de estructura:
 ```
-/videos
-├── viajes/
-│   ├── 2023-italia/
-│   ├── 2024-japon/
-│   └── playa-360.mp4
-├── eventos/
-│   ├── boda/
-│   └── cumpleaños/
-└── drone/
-    └── montanas-360.mp4
+360-viewer-react/
+├── backend/           # Flask API (sin cambios)
+│   ├── server.py
+│   └── Dockerfile
+├── frontend/          # React + Vite + Tailwind
+│   ├── src/
+│   │   ├── components/
+│   │   │   ├── Sidebar.jsx       # Bibliotecas + navegación
+│   │   │   ├── VideoPlayer.jsx   # A-Frame 360°
+│   │   │   └── VideoControls.jsx # Controles de reproducción
+│   │   ├── hooks/
+│   │   │   ├── useVideo.js       # Lógica del video
+│   │   │   └── useLibraries.js   # API de bibliotecas
+│   │   ├── App.jsx
+│   │   └── main.jsx
+│   ├── package.json
+│   ├── tailwind.config.js
+│   └── Dockerfile
+└── docker-compose.yml
 ```
 
-## 🚀 Instalación en TrueNAS Scale
+## 🚀 Desarrollo Local
 
-### Método 1: Docker Compose (Recomendado)
+### Requisitos
+- Node.js 18+
+- Python 3.11+
 
-1. **Edita el `docker-compose.yml`** y cambia la ruta de tus videos:
-   ```yaml
-   volumes:
-     - /mnt/tu-pool/videos-360:/videos:ro
-   ```
+### 1. Backend
+```bash
+cd backend
+pip install flask flask-cors
+python server.py --videos "E:\proyects\360-viewer\videos"
+```
 
-2. **Despliega:**
-   ```bash
-   docker-compose up -d
-   ```
+### 2. Frontend
+```bash
+cd frontend
+npm install
+npm run dev
+```
 
-### Método 2: TrueNAS Scale Apps (Custom App)
+Abre: http://localhost:5173
 
-1. Ve a **Apps** → **Discover Apps** → **Custom App**
-
-2. Configura:
-   - **Application Name:** `360-viewer`
-   - **Image:** `360-viewer:latest` (o constrúyela primero)
-   - **Container Port:** 8080
-   - **Host Port:** 8080
-
-3. **Storage**:
-   - **Host Path:** `/mnt/tu-pool/videos-360`
-   - **Mount Path:** `/videos`
-   - **Read Only:** ✅
-   
-   - **Host Path:** `/mnt/tu-pool/app-data/360-viewer`
-   - **Mount Path:** `/app/data`
-   - **Read Only:** ❌ (para persistir bibliotecas)
-
-4. **Environment Variables**:
-   - `VIDEOS_PATH` = `/videos`
-   - `LIBRARIES_FILE` = `/app/data/.libraries.json`
-
-### Método 3: Script de despliegue
+## 🐳 Despliegue en TrueNAS Scale
 
 ```bash
-./deploy-truenas.sh /mnt/tu-pool/videos-360 8080
+# Edita docker-compose.yml y cambia la ruta de videos
+volumes:
+  - /mnt/tu-pool/videos-360:/videos:ro
+
+# Despliega
+docker-compose up -d
 ```
+
+Accede a: http://tu-nas
 
 ## 🎮 Uso
 
-### 1. Crear Bibliotecas
+### Bibliotecas
+- Crea bibliotecas virtuales apuntando a carpetas específicas
+- Ejemplo: `viajes/2024-japon`
 
-1. Haz clic en **"Añadir biblioteca"**
-2. Pon un nombre descriptivo: *"Viajes 2024"*
-3. Escribe la ruta relativa: `viajes/2024-japon`
-4. ¡Listo! La biblioteca aparece en el sidebar
+### Navegación
+- Click en carpetas para entrar
+- Breadcrumbs para volver atrás
+- Sidebar colapsable con botón ◀/▶
 
-### 2. Navegar y Reproducir
+### Controles de Video
+- **▶️/⏸️**: Play/Pausa
+- **Timeline**: Arrastra para adelantar/atrasar
+- **🔊**: Volumen con slider
+- **VR**: Botón en esquina para gafas
 
-- **Carpetas**: Doble clic para entrar
-- **Breadcrumbs**: Navega hacia atrás fácilmente
-- **Videos**: Click para reproducir en 360°
+## 🛠️ Tecnologías
 
-### 3. Controles 360°
+| Capa | Tecnología |
+|------|------------|
+| Frontend | React 18, Vite, Tailwind CSS, Lucide Icons |
+| Backend | Flask, Flask-CORS |
+| 360° | A-Frame |
+| Contenedor | Docker, Nginx |
 
-| Dispositivo | Control |
-|-------------|---------|
-| **Desktop** | Click y arrastra |
-| **Móvil** | Gira el dispositivo o desliza |
-| **VR** | Botón VR (esquina) para gafas |
+## 📦 Construcción Manual
 
-## 📂 Estructura del Proyecto
+```bash
+# Frontend
+cd frontend
+npm install
+npm run build
 
+# Backend
+cd ../backend
+docker build -t 360-viewer-backend .
+
+# Todo
+cd ..
+docker-compose up --build -d
 ```
-360-viewer/
-├── app/
-│   ├── index.html          # UI con navegación de bibliotecas
-│   └── server.py           # API: bibliotecas + navegación
-├── Dockerfile              # Imagen Docker
-├── docker-compose.yml      # Despliegue con volúmenes
-├── deploy-truenas.sh       # Script automático
-└── README.md
-```
 
-## 🔧 API Endpoints
+## 🔧 Variables de Entorno
 
-- `GET /api/libraries` - Lista bibliotecas
-- `POST /api/libraries` - Crea biblioteca (`{name, path}`)
-- `DELETE /api/libraries/{id}` - Elimina biblioteca
-- `GET /api/browse?path=` - Navega directorios
-- `GET /videos/{ruta}` - Sirve archivos de video
+| Variable | Descripción | Default |
+|----------|-------------|---------|
+| `VIDEOS_PATH` | Directorio de videos | `/videos` |
+| `LIBRARIES_FILE` | JSON de bibliotecas | `/app/data/.libraries.json` |
+| `FLASK_CORS` | Habilitar CORS | `false` |
 
-## 🐛 Solución de Problemas
+## 📝 Licencia
 
-### No aparecen carpetas
-- Verifica que el directorio `/videos` esté montado correctamente
-- Revisa permisos de lectura: `chmod -R 755 /mnt/tu-pool/videos-360`
-
-### El video no carga
-- Asegúrate de que es un video **equirectangular 360°**
-- Formatos soportados: MP4, WebM, MOV, MKV, AVI
-- Verifica que el archivo no esté corrupto
-
-### Las bibliotecas no se guardan
-- El volumen `/app/data` debe tener permisos de escritura
-- Verifica que `LIBRARIES_FILE` apunte a `/app/data/.libraries.json`
-
-## 💡 Tips
-
-- **Organiza por temas**: Crea bibliotecas para viajes, eventos, drone...
-- **Usa nombres claros**: Facilita encontrar contenido
-- **Estructura anidada**: Carpetas dentro de carpetas para organizar
-- **Sin límite**: Crea todas las bibliotecas que necesites
-
-## 📱 Compatibilidad
-
-- Chrome/Edge/Firefox/Safari modernos
-- iOS Safari (con interacción para autoplay)
-- Android Chrome
-- Gafas VR con WebXR (Oculus, Quest, etc.)
-
-## 📜 Licencia
-
-MIT - Uso libre para proyectos personales
+MIT

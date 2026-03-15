@@ -1,27 +1,31 @@
 version: '3.8'
 
 services:
-  360-viewer:
-    build: .
-    container_name: 360-viewer
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: 360-viewer-backend
     restart: unless-stopped
     ports:
-      - '8080:8080'
+      - "8080:8080"
     volumes:
-      # Monta tu directorio de videos del NAS aquí
-      - E:\proyects\360-viewer\videos:/videos:ro
-      # Persistir las bibliotecas creadas
-      - 360-viewer-data:/app/data
+      - /mnt/tu-pool/videos-360:/videos:ro
+      - backend-data:/app/data
     environment:
       - VIDEOS_PATH=/videos
       - LIBRARIES_FILE=/app/data/.libraries.json
-    networks:
-      - 360-network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: 360-viewer-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
 
 volumes:
-  360-viewer-data:
-    driver: local
-
-networks:
-  360-network:
-    driver: bridge
+  backend-data:
