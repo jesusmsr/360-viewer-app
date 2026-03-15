@@ -1,31 +1,30 @@
 version: '3.8'
 
 services:
-  backend:
+  viewer:
     build:
-      context: ./backend
+      context: .
       dockerfile: Dockerfile
-    container_name: 360-viewer-backend
+    image: 360-viewer:latest
+    container_name: 360-viewer
     restart: unless-stopped
     ports:
+      # ✏️ Cambia el primer número si quieres otro puerto
+      # Ejemplo: "8080:8080" para usar puerto 8080
       - "8080:8080"
     volumes:
-      - /mnt/tu-pool/videos-360:/videos:ro
-      - backend-data:/app/data
+      # ✏️ CAMBIA ESTA RUTA a tu carpeta de videos 360°
+      # Ejemplos:
+      # Windows: C:/Users/TuUsuario/Videos/360:/videos:ro
+      # Linux:   /home/usuario/videos:/videos:ro
+      # NAS:     /mnt/nas/videos-360:/videos:ro
+      - ./videos:/videos:ro
+      - viewer-data:/app/data
     environment:
       - VIDEOS_PATH=/videos
       - LIBRARIES_FILE=/app/data/.libraries.json
-
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    container_name: 360-viewer-frontend
-    restart: unless-stopped
-    ports:
-      - "80:80"
-    depends_on:
-      - backend
+      - FLASK_CORS=true
+      - STATIC_FOLDER=/app/static
 
 volumes:
-  backend-data:
+  viewer-data:

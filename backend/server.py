@@ -3,11 +3,12 @@
 Servidor para 360° Video Viewer
 Sistema de bibliotecas con navegación de carpetas
 """
-from flask import Flask, send_from_directory, jsonify, request
+from flask import Flask, send_from_directory, jsonify, request, send_file
 from flask_cors import CORS
 import os
 from pathlib import Path
 import json
+from datetime import datetime
 
 app = Flask(__name__)
 
@@ -21,198 +22,243 @@ if os.environ.get('FLASK_CORS'):
 # Configuración
 VIDEOS_BASE_DIR = os.environ.get('VIDEOS_PATH', '/videos')
 LIBRARIES_FILE = os.environ.get('LIBRARIES_FILE', '/app/.libraries.json')
-
-# Extensiones de video soportadas
-VIDEO_EXTENSIONS = {'.mp4', '.webm', '.mov', '.mkv', '.avi'}
+STATIC_FOLDER = os.environ.get('STATIC_FOLDER', '/app/static')
 
 
-def load_libraries():
-    """Carga las bibliotecas guardadas"""
-    if os.path.exists(LIBRARIES_FILE):
-        try:
-            with open(LIBRARIES_FILE, 'r') as f:
-                return json.load(f)
-        except:
-            return {}
-    return {}
-
-
-def save_libraries(libraries):
-    """Guarda las bibliotecas"""
-    with open(LIBRARIES_FILE, 'w') as f:
-        json.dump(libraries, f, indent=2)
-
-
-def get_directory_contents(path):
-    """Obtiene el contenido de un directorio (carpetas y videos)"""
-    items = []
-    
-    if not os.path.exists(path):
-        return items
-    
-    try:
-        entries = sorted(os.listdir(path))
-    except PermissionError:
-        return items
-    
-    # Primero carpetas, luego videos
-    folders = []
-    videos = []
-    
-    for entry in entries:
-        if entry.startswith('.'):
-            continue
-            
-        full_path = os.path.join(path, entry)
-        rel_path = os.path.relpath(full_path, VIDEOS_BASE_DIR)
-        
-        if os.path.isdir(full_path):
-            folders.append({
-                'name': entry,
-                'type': 'folder',
-                'path': rel_path,
-                'item_count': len([f for f in os.listdir(full_path) if not f.startswith('.')])
-            })
-        else:
-            ext = Path(entry).suffix.lower()
-            if ext in VIDEO_EXTENSIONS:
-                stat = os.stat(full_path)
-                videos.append({
-                    'name': entry,
-                    'type': 'video',
-                    'path': f'/videos/{rel_path}',
-                    'size': stat.st_size,
-                    'modified': stat.st_mtime,
-                    'ext': ext
-                })
-    
-    return folders + videos
-
-
-@app.route('/')
-def index():
-    """Sirve la página principal"""
-    return send_from_directory('.', 'index.html')
-
+# ============================================
+# RUTAS API - VAN PRIMERO
+# ============================================
 
 @app.route('/api/libraries', methods=['GET'])
 def get_libraries():
-    """Obtiene todas las bibliotecas configuradas"""
-    libraries = load_libraries()
-    return jsonify(libraries)
+    """Obtiene todas las bibliotecas"""
+    if os.path.exists(LIBRARIES_FILE):
+        with open(LIBRARIES_FILE, 'r') as f:
+            return jsonify(json.load(f))
+    return jsonify({})
 
 
 @app.route('/api/libraries', methods=['POST'])
-def add_library():
-    """Añade una nueva biblioteca"""
+def create_library():
+    """Crea una nueva biblioteca"""
     data = request.json
-    name = data.get('name', '').strip()
-    path = data.get('path', '').strip()
+    library_id = data.get('id', str(datetime.now().timestamp()))
     
-    if not name or not path:
-        return jsonify({'error': 'Nombre y ruta requeridos'}), 400
+    libraries = {}
+    if os.path.exists(LIBRARIES_FILE):
+        with open(LIBRARIES_FILE, 'r') as f:
+            libraries = json.load(f)
     
-    # Sanitizar ruta (debe estar dentro de VIDEOS_BASE_DIR)
-    full_path = os.path.join(VIDEOS_BASE_DIR, path.lstrip('/'))
-    if not full_path.startswith(VIDEOS_BASE_DIR):
-        return jsonify({'error': 'Ruta no válida'}), 400
-    
-    if not os.path.exists(full_path):
-        return jsonify({'error': 'El directorio no existe'}), 404
-    
-    libraries = load_libraries()
-    library_id = str(len(libraries) + 1)
     libraries[library_id] = {
         'id': library_id,
-        'name': name,
-        'path': path.lstrip('/'),
-        'full_path': full_path
+        'name': data.get('name', 'Nueva Biblioteca'),
+        'path': data.get('path', ''),
+        'description': data.get('description', ''),
+        'created': datetime.now().isoformat()
     }
-    save_libraries(libraries)
     
-    return jsonify(libraries[library_id])
+    # Crear directorio si no existe
+    os.makedirs(os.path.dirname(LIBRARIES_FILE), exist_ok=True)
+    with open(LIBRARIES_FILE, 'w') as f:
+        json.dump(libraries, f, indent=2)
+    
+    return jsonify(libraries[library_id]), 201
 
 
 @app.route('/api/libraries/<library_id>', methods=['DELETE'])
 def delete_library(library_id):
     """Elimina una biblioteca"""
-    libraries = load_libraries()
+    if not os.path.exists(LIBRARIES_FILE):
+        return jsonify({'error': 'No libraries found'}), 404
+    
+    with open(LIBRARIES_FILE, 'r') as f:
+        libraries = json.load(f)
+    
     if library_id in libraries:
         del libraries[library_id]
-        save_libraries(libraries)
+        with open(LIBRARIES_FILE, 'w') as f:
+            json.dump(libraries, f, indent=2)
         return jsonify({'success': True})
-    return jsonify({'error': 'Biblioteca no encontrada'}), 404
+    
+    return jsonify({'error': 'Library not found'}), 404
 
 
-@app.route('/api/browse')
-def browse_directory():
-    """Navega por un directorio y devuelve su contenido"""
-    path = request.args.get('path', '')
+@app.route('/api/scan', methods=['POST'])
+def scan_videos():
+    """Escanea videos en el directorio base"""
+    videos = []
+    base_path = Path(VIDEOS_BASE_DIR)
     
-    # Sanitizar ruta
-    full_path = os.path.join(VIDEOS_BASE_DIR, path.lstrip('/'))
-    if not full_path.startswith(VIDEOS_BASE_DIR):
-        return jsonify({'error': 'Ruta no válida'}), 400
+    if not base_path.exists():
+        return jsonify({'videos': [], 'count': 0, 'base_path': VIDEOS_BASE_DIR})
     
-    if not os.path.exists(full_path):
-        return jsonify({'error': 'Directorio no encontrado'}), 404
+    video_extensions = {'.mp4', '.mov', '.avi', '.mkv', '.webm'}
     
-    # Obtener breadcrumbs
-    breadcrumbs = []
-    rel_parts = path.strip('/').split('/') if path else []
-    current = ''
-    breadcrumbs.append({'name': '📁 Raíz', 'path': ''})
-    for part in rel_parts:
-        current = os.path.join(current, part) if current else part
-        breadcrumbs.append({'name': part, 'path': current})
+    for file_path in base_path.rglob('*'):
+        if file_path.suffix.lower() in video_extensions:
+            relative_path = file_path.relative_to(base_path)
+            videos.append({
+                'id': str(file_path.stat().st_mtime) + str(file_path),
+                'name': file_path.name,
+                'path': str(relative_path),
+                'full_path': str(file_path),
+                'size': file_path.stat().st_size,
+                'modified': datetime.fromtimestamp(file_path.stat().st_mtime).isoformat()
+            })
     
-    contents = get_directory_contents(full_path)
+    videos.sort(key=lambda x: x['modified'], reverse=True)
     
     return jsonify({
-        'path': path,
-        'full_path': full_path,
-        'breadcrumbs': breadcrumbs,
-        'items': contents
+        'videos': videos,
+        'count': len(videos),
+        'base_path': VIDEOS_BASE_DIR
     })
 
 
-@app.route('/api/scan')
-def scan_all_videos():
-    """Escanea y devuelve todos los videos del directorio base"""
+@app.route('/api/folder-contents', methods=['POST'])
+def get_folder_contents():
+    """Obtiene contenido de una carpeta específica"""
+    data = request.json
+    folder_path = data.get('path', '')
+    
+    full_path = Path(VIDEOS_BASE_DIR) / folder_path
+    
+    # Security check
+    try:
+        full_path.relative_to(Path(VIDEOS_BASE_DIR))
+    except ValueError:
+        return jsonify({'error': 'Invalid path'}), 403
+    
+    if not full_path.exists() or not full_path.is_dir():
+        return jsonify({'folders': [], 'videos': []})
+    
+    folders = []
     videos = []
+    video_extensions = {'.mp4', '.mov', '.avi', '.mkv', '.webm'}
     
-    if not os.path.exists(VIDEOS_BASE_DIR):
-        return jsonify(videos)
+    for item in sorted(full_path.iterdir()):
+        if item.is_dir():
+            folders.append({
+                'name': item.name,
+                'path': str(item.relative_to(Path(VIDEOS_BASE_DIR)))
+            })
+        elif item.suffix.lower() in video_extensions:
+            relative_path = item.relative_to(Path(VIDEOS_BASE_DIR))
+            videos.append({
+                'name': item.name,
+                'path': str(relative_path),
+                'modified': datetime.fromtimestamp(item.stat().st_mtime).isoformat(),
+                'size': item.stat().st_size
+            })
     
-    for root, dirs, files in os.walk(VIDEOS_BASE_DIR):
-        # Ignorar directorios ocultos
-        dirs[:] = [d for d in dirs if not d.startswith('.')]
-        
-        for file in files:
-            if file.startswith('.'):
-                continue
-                
-            ext = Path(file).suffix.lower()
-            if ext in VIDEO_EXTENSIONS:
-                full_path = os.path.join(root, file)
-                rel_path = os.path.relpath(full_path, VIDEOS_BASE_DIR)
-                
-                videos.append({
-                    'name': file,
-                    'path': f'/videos/{rel_path}',
-                    'folder': os.path.dirname(rel_path) or 'Raíz',
-                    'size': os.path.getsize(full_path),
-                    'modified': os.path.getmtime(full_path)
-                })
-    
-    videos.sort(key=lambda x: x['modified'], reverse=True)
-    return jsonify(videos)
+    return jsonify({
+        'folders': folders,
+        'videos': videos,
+        'current_path': folder_path
+    })
 
 
 @app.route('/videos/<path:filename>')
 def serve_video(filename):
-    """Sirve los archivos de video"""
-    return send_from_directory(VIDEOS_BASE_DIR, filename)
+    """Sirve archivos de video"""
+    video_path = Path(VIDEOS_BASE_DIR) / filename
+    
+    # Security check
+    try:
+        video_path.relative_to(Path(VIDEOS_BASE_DIR))
+    except ValueError:
+        return jsonify({'error': 'Invalid path'}), 403
+    
+    if not video_path.exists():
+        return jsonify({'error': 'Video not found'}), 404
+    
+    return send_file(str(video_path), mimetype='video/mp4')
+
+
+@app.route('/api/health')
+def health():
+    """Health check"""
+    return jsonify({'status': 'ok', 'videos_path': VIDEOS_BASE_DIR})
+
+
+@app.route('/api/browse', methods=['GET'])
+def browse():
+    """Navega por carpetas (versión GET para el frontend)"""
+    folder_path = request.args.get('path', '')
+    
+    full_path = Path(VIDEOS_BASE_DIR) / folder_path
+    
+    # Security check
+    try:
+        full_path.relative_to(Path(VIDEOS_BASE_DIR))
+    except ValueError:
+        return jsonify({'error': 'Invalid path'}), 403
+    
+    if not full_path.exists():
+        return jsonify({'folders': [], 'videos': [], 'current_path': folder_path, 'exists': False})
+    
+    if not full_path.is_dir():
+        return jsonify({'folders': [], 'videos': [], 'current_path': folder_path, 'error': 'Not a directory'}), 400
+    
+    folders = []
+    videos = []
+    video_extensions = {'.mp4', '.mov', '.avi', '.mkv', '.webm'}
+    
+    try:
+        for item in sorted(full_path.iterdir()):
+            if item.is_dir():
+                folders.append({
+                    'name': item.name,
+                    'path': str(item.relative_to(Path(VIDEOS_BASE_DIR)))
+                })
+            elif item.suffix.lower() in video_extensions:
+                relative_path = item.relative_to(Path(VIDEOS_BASE_DIR))
+                videos.append({
+                    'name': item.name,
+                    'path': str(relative_path),
+                    'modified': datetime.fromtimestamp(item.stat().st_mtime).isoformat(),
+                    'size': item.stat().st_size
+                })
+    except PermissionError:
+        return jsonify({'error': 'Permission denied'}), 403
+    
+    return jsonify({
+        'folders': folders,
+        'videos': videos,
+        'current_path': folder_path,
+        'exists': True,
+        'base_path': VIDEOS_BASE_DIR
+    })
+
+
+# ============================================
+# RUTAS ESTÁTICAS (REACT FRONTEND) - AL FINAL
+# Estas deben ir al final para no capturar /api/* y /videos/*
+# ============================================
+
+@app.route('/')
+def index():
+    """Sirve la página principal (React app)"""
+    if os.path.exists(os.path.join(STATIC_FOLDER, 'index.html')):
+        return send_from_directory(STATIC_FOLDER, 'index.html')
+    return jsonify({'status': '360° Viewer API', 'static_folder': STATIC_FOLDER})
+
+
+@app.route('/<path:path>')
+def serve_static(path):
+    """Sirve archivos estáticos del frontend (SPA fallback)"""
+    # No capturar rutas de API ni videos
+    if path.startswith('api/') or path.startswith('videos/'):
+        return jsonify({'error': 'Not found'}), 404
+    
+    file_path = os.path.join(STATIC_FOLDER, path)
+    # Si el archivo existe, lo sirve
+    if os.path.exists(file_path) and os.path.isfile(file_path):
+        return send_from_directory(STATIC_FOLDER, path)
+    # Si no existe, devuelve index.html (SPA routing)
+    if os.path.exists(os.path.join(STATIC_FOLDER, 'index.html')):
+        return send_from_directory(STATIC_FOLDER, 'index.html')
+    return jsonify({'error': 'Not found'}), 404
 
 
 if __name__ == '__main__':
@@ -221,12 +267,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--host', default='0.0.0.0', help='Host (default: 0.0.0.0)')
     parser.add_argument('--port', type=int, default=8080, help='Puerto (default: 8080)')
-    parser.add_argument('--videos', default='/videos', help='Directorio base de videos')
-    parser.add_argument('--libraries', default='/app/.libraries.json', help='Archivo de bibliotecas')
     args = parser.parse_args()
-    
-    VIDEOS_BASE_DIR = args.videos
-    LIBRARIES_FILE = args.libraries
     
     print(f"📁 Directorio base: {VIDEOS_BASE_DIR}")
     print(f"📚 Bibliotecas en: {LIBRARIES_FILE}")
