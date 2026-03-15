@@ -712,6 +712,10 @@ def join_with_invite():
     if not peer_url:
         return jsonify({'error': 'URL del amigo requerida'}), 400
     
+    # Asegurar que la URL tiene protocolo
+    if not peer_url.startswith(('http://', 'https://')):
+        peer_url = f"http://{peer_url}"
+
     if not invite_code:
         return jsonify({'error': 'Código de invitación requerido'}), 400
     

@@ -6,8 +6,6 @@ import {
   Plus,
   X,
   ChevronLeft,
-  ChevronRight,
-  ArrowUpDown,
   Calendar,
   FileText,
   Users,
@@ -17,7 +15,6 @@ import {
   WifiOff,
   Copy,
   Gift,
-  UserPlus,
 } from 'lucide-react';
 
 export function Sidebar({
@@ -29,11 +26,9 @@ export function Sidebar({
   peers,
   selectedPeer,
   onSelectPeer,
-  onAddPeer,
   onRemovePeer,
   onSyncPeer,
   onRefreshPeers,
-  currentPath,
   breadcrumbs,
   items,
   onNavigate,
@@ -51,6 +46,7 @@ export function Sidebar({
   const [newPeerName, setNewPeerName] = useState('');
   const [newPeerUrl, setNewPeerUrl] = useState('');
   const [newPeerCode, setNewPeerCode] = useState('');
+  const [urlError, setUrlError] = useState('');
   const [sortBy, setSortBy] = useState('date');
   const [sortOrder, setSortOrder] = useState('desc');
 
@@ -72,6 +68,13 @@ export function Sidebar({
 
   const handleAddPeer = async (e) => {
     e.preventDefault();
+
+    // Validate URL before submission
+    if (!isValidUrl(newPeerUrl)) {
+      setUrlError('Please enter a valid URL (e.g., http://example.com:3000)');
+      return;
+    }
+
     if (newPeerName && newPeerUrl && newPeerCode) {
       // Usar el nuevo sistema de invitación con código
       const result = await joinWithInviteCode({
@@ -84,6 +87,7 @@ export function Sidebar({
         setNewPeerName('');
         setNewPeerUrl('');
         setNewPeerCode('');
+        setUrlError('');
         setShowPeerModal(false);
         // Recargar peers
         if (onRefreshPeers) onRefreshPeers();
@@ -159,6 +163,32 @@ export function Sidebar({
     navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  // Validate URL format
+  const isValidUrl = (url) => {
+    try {
+      const urlObj = new URL(url);
+      return (
+        (urlObj.protocol === 'http:' || urlObj.protocol === 'https:') &&
+        urlObj.hostname.length > 0
+      );
+    } catch {
+      return false;
+    }
+  };
+
+  // Handle URL input with validation
+  const handleUrlChange = (e) => {
+    const url = e.target.value;
+    setNewPeerUrl(url);
+
+    // Real-time validation
+    if (url && !isValidUrl(url)) {
+      setUrlError('Please enter a valid URL (e.g., http://example.com:3000)');
+    } else {
+      setUrlError('');
+    }
   };
 
   // Cargar invitaciones al abrir modal
@@ -599,10 +629,17 @@ export function Sidebar({
                 <input
                   type='text'
                   value={newPeerUrl}
-                  onChange={(e) => setNewPeerUrl(e.target.value)}
+                  onChange={handleUrlChange}
                   placeholder={t('modal.urlPlaceholder')}
-                  className='w-full px-4 py-2.5 bg-dark-900 border border-dark-600 rounded-lg text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none'
+                  className={`w-full px-4 py-2.5 bg-dark-900 border rounded-lg text-white placeholder-gray-500 focus:outline-none ${
+                    urlError
+                      ? 'border-red-500 focus:border-red-500'
+                      : 'border-dark-600 focus:border-blue-500'
+                  }`}
                 />
+                {urlError && (
+                  <p className='text-xs text-red-400 mt-1'>{urlError}</p>
+                )}
               </div>
               <div>
                 <label className='block text-sm text-gray-400 mb-1.5'>
@@ -765,7 +802,14 @@ function formatSize(bytes) {
 
 function formatDate(timestamp) {
   if (!timestamp) return '';
-  const date = new Date(timestamp * 1000);
+
+  const date =
+    typeof timestamp === 'number'
+      ? new Date(timestamp * 1000)
+      : new Date(timestamp);
+
+  if (isNaN(date.getTime())) return '';
+
   return date.toLocaleDateString('en-US', {
     day: '2-digit',
     month: '2-digit',
