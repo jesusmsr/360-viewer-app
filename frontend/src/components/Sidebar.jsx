@@ -1,12 +1,30 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Folder, FolderOpen, Plus, X, ChevronLeft, ChevronRight, ArrowUpDown, Calendar, FileText, Users, RefreshCw, Link, Wifi, WifiOff } from 'lucide-react';
+import {
+  Folder,
+  FolderOpen,
+  Plus,
+  X,
+  ChevronLeft,
+  ChevronRight,
+  ArrowUpDown,
+  Calendar,
+  FileText,
+  Users,
+  RefreshCw,
+  Link,
+  Wifi,
+  WifiOff,
+  Copy,
+  Gift,
+  UserPlus,
+} from 'lucide-react';
 
-export function Sidebar({ 
-  libraries, 
-  currentLibrary, 
-  onSelectLibrary, 
-  onAddLibrary, 
+export function Sidebar({
+  libraries,
+  currentLibrary,
+  onSelectLibrary,
+  onAddLibrary,
   onDeleteLibrary,
   peers,
   selectedPeer,
@@ -14,6 +32,7 @@ export function Sidebar({
   onAddPeer,
   onRemovePeer,
   onSyncPeer,
+  onRefreshPeers,
   currentPath,
   breadcrumbs,
   items,
@@ -21,18 +40,25 @@ export function Sidebar({
   onPlayVideo,
   currentVideo,
   collapsed,
-  onToggleCollapse
+  onToggleCollapse,
 }) {
   const { t } = useTranslation();
   const [showModal, setShowModal] = useState(false);
   const [showPeerModal, setShowPeerModal] = useState(false);
+  const [showInviteModal, setShowInviteModal] = useState(false);
   const [newLibName, setNewLibName] = useState('');
   const [newLibPath, setNewLibPath] = useState('');
   const [newPeerName, setNewPeerName] = useState('');
   const [newPeerUrl, setNewPeerUrl] = useState('');
-  const [newPeerToken, setNewPeerToken] = useState('');
+  const [newPeerCode, setNewPeerCode] = useState('');
   const [sortBy, setSortBy] = useState('date');
   const [sortOrder, setSortOrder] = useState('desc');
+
+  // Estados para generar invitaciones
+  const [inviteCode, setInviteCode] = useState(null);
+  const [inviteLoading, setInviteLoading] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [myInvites, setMyInvites] = useState([]);
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -44,33 +70,121 @@ export function Sidebar({
     }
   };
 
-  const handleAddPeer = (e) => {
+  const handleAddPeer = async (e) => {
     e.preventDefault();
-    if (newPeerName && newPeerUrl) {
-      onAddPeer({
+    if (newPeerName && newPeerUrl && newPeerCode) {
+      // Usar el nuevo sistema de invitación con código
+      const result = await joinWithInviteCode({
         name: newPeerName,
         url: newPeerUrl,
-        token: newPeerToken,
-        my_id: 'me'
+        invite_code: newPeerCode,
       });
-      setNewPeerName('');
-      setNewPeerUrl('');
-      setNewPeerToken('');
-      setShowPeerModal(false);
+
+      if (result.success) {
+        setNewPeerName('');
+        setNewPeerUrl('');
+        setNewPeerCode('');
+        setShowPeerModal(false);
+        // Recargar peers
+        if (onRefreshPeers) onRefreshPeers();
+      } else {
+        alert(result.error || 'Error conectando con el amigo');
+      }
     }
   };
 
+  // Función para unirse usando código de invitación
+  const joinWithInviteCode = async (data) => {
+    try {
+      const response = await fetch('/api/federation/join', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: data.url,
+          invite_code: data.invite_code,
+          my_name: data.name,
+        }),
+      });
+
+      if (response.ok) {
+        return await response.json();
+      } else {
+        const error = await response.json();
+        return { success: false, error: error.error };
+      }
+    } catch (err) {
+      return { success: false, error: 'Error de conexión' };
+    }
+  };
+
+  // Generar código de invitación
+  const generateInvite = async () => {
+    setInviteLoading(true);
+    try {
+      const response = await fetch('/api/federation/invite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Invitado',
+          description: 'Invitación generada desde la app',
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setInviteCode(data.invite_code);
+        loadMyInvites(); // Recargar lista
+      }
+    } catch (err) {
+      console.error('Error generando invitación:', err);
+    }
+    setInviteLoading(false);
+  };
+
+  // Cargar mis invitaciones
+  const loadMyInvites = async () => {
+    try {
+      const response = await fetch('/api/federation/my-invites');
+      if (response.ok) {
+        const data = await response.json();
+        setMyInvites(data.invites || []);
+      }
+    } catch (err) {
+      console.error('Error cargando invitaciones:', err);
+    }
+  };
+
+  // Copiar al portapapeles
+  const copyToClipboard = (text) => {
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  // Cargar invitaciones al abrir modal
+  useEffect(() => {
+    if (showInviteModal) {
+      loadMyInvites();
+    }
+  }, [showInviteModal]);
+
   // Separar carpetas y videos
-  const folders = useMemo(() => items.filter(i => i.type === 'folder'), [items]);
-  const videos = useMemo(() => items.filter(i => i.type === 'video'), [items]);
+  const folders = useMemo(
+    () => items.filter((i) => i.type === 'folder'),
+    [items],
+  );
+  const videos = useMemo(
+    () => items.filter((i) => i.type === 'video'),
+    [items],
+  );
 
   // Ordenar videos
   const sortedVideos = useMemo(() => {
     const sorted = [...videos];
     sorted.sort((a, b) => {
       if (sortBy === 'date') {
-        return sortOrder === 'desc' 
-          ? b.modified - a.modified 
+        return sortOrder === 'desc'
+          ? b.modified - a.modified
           : a.modified - b.modified;
       } else {
         return sortOrder === 'desc'
@@ -86,7 +200,7 @@ export function Sidebar({
 
   const toggleSort = (field) => {
     if (sortBy === field) {
-      setSortOrder(prev => prev === 'desc' ? 'asc' : 'desc');
+      setSortOrder((prev) => (prev === 'desc' ? 'asc' : 'desc'));
     } else {
       setSortBy(field);
       setSortOrder(field === 'date' ? 'desc' : 'asc');
@@ -96,44 +210,60 @@ export function Sidebar({
   return (
     <>
       {/* Sidebar Container */}
-      <div className={`relative flex transition-all duration-300 ${collapsed ? 'w-0' : 'w-80'}`}>
+      <div
+        className={`relative flex transition-all duration-300 ${collapsed ? 'w-0' : 'w-80'}`}
+      >
         {/* Sidebar Content */}
-        <aside className={`bg-dark-800 border-r border-dark-600 flex flex-col h-full overflow-hidden transition-all duration-300 ${collapsed ? 'w-0 opacity-0' : 'w-80 opacity-100'}`}>
-          <div className="p-5 border-b border-dark-600 min-w-[320px]">
-            <h1 className="text-xl font-semibold mb-1">🎥 {t('app.title')}</h1>
-            <p className="text-sm text-gray-400">{t('sidebar.librariesTitle')}</p>
+        <aside
+          className={`bg-dark-800 border-r border-dark-600 flex flex-col h-full overflow-hidden transition-all duration-300 ${collapsed ? 'w-0 opacity-0' : 'w-80 opacity-100'}`}
+        >
+          <div className='p-5 border-b border-dark-600 min-w-[320px]'>
+            <h1 className='text-xl font-semibold mb-1'>🎥 {t('app.title')}</h1>
+            <p className='text-sm text-gray-400'>
+              {t('sidebar.librariesTitle')}
+            </p>
           </div>
-          
+
           {/* Bibliotecas */}
-          <div className="p-4 border-b border-dark-600 min-w-[320px]">
-            <p className="text-xs uppercase text-gray-500 mb-3 tracking-wider">{t('sidebar.myLibraries')}</p>
-            <div className="space-y-1">
+          <div className='p-4 border-b border-dark-600 min-w-[320px]'>
+            <p className='text-xs uppercase text-gray-500 mb-3 tracking-wider'>
+              {t('sidebar.myLibraries')}
+            </p>
+            <div className='space-y-1'>
               {/* Opción Raíz */}
               <button
                 onClick={() => onSelectLibrary(null)}
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
-                  !currentLibrary ? 'bg-blue-500/20 text-blue-400' : 'hover:bg-white/5'
+                  !currentLibrary
+                    ? 'bg-blue-500/20 text-blue-400'
+                    : 'hover:bg-white/5'
                 }`}
               >
                 <FolderOpen size={20} />
-                <span className="flex-1 text-left text-sm">{t('sidebar.allFolders')}</span>
+                <span className='flex-1 text-left text-sm'>
+                  {t('sidebar.allFolders')}
+                </span>
               </button>
-              
+
               {/* Bibliotecas guardadas */}
               {Object.entries(libraries).map(([id, lib]) => (
-                <div key={id} className="group relative">
+                <div key={id} className='group relative'>
                   <button
                     onClick={() => onSelectLibrary(id)}
                     className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
-                      currentLibrary === id ? 'bg-blue-500/20 text-blue-400' : 'hover:bg-white/5'
+                      currentLibrary === id
+                        ? 'bg-blue-500/20 text-blue-400'
+                        : 'hover:bg-white/5'
                     }`}
                   >
                     <Folder size={20} />
-                    <span className="flex-1 text-left text-sm truncate">{lib.name}</span>
+                    <span className='flex-1 text-left text-sm truncate'>
+                      {lib.name}
+                    </span>
                   </button>
                   <button
                     onClick={() => onDeleteLibrary(id)}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-1.5 rounded text-red-400 hover:bg-red-500/20 transition-all"
+                    className='absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-1.5 rounded text-red-400 hover:bg-red-500/20 transition-all'
                     title={t('sidebar.deleteLibrary')}
                   >
                     <X size={14} />
@@ -141,74 +271,88 @@ export function Sidebar({
                 </div>
               ))}
             </div>
-            
+
             <button
               onClick={() => setShowModal(true)}
-              className="w-full mt-3 py-2.5 border border-dashed border-gray-600 rounded-lg text-gray-400 hover:border-gray-500 hover:text-gray-300 hover:bg-white/5 transition-all flex items-center justify-center gap-2 text-sm"
+              className='w-full mt-3 py-2.5 border border-dashed border-gray-600 rounded-lg text-gray-400 hover:border-gray-500 hover:text-gray-300 hover:bg-white/5 transition-all flex items-center justify-center gap-2 text-sm'
             >
               <Plus size={16} />
               {t('sidebar.addLibrary')}
             </button>
           </div>
-          
+
           {/* Peers / Amigos conectados */}
-          <div className="p-4 border-b border-dark-600 min-w-[320px]">
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-xs uppercase text-gray-500 tracking-wider flex items-center gap-2">
+          <div className='p-4 border-b border-dark-600 min-w-[320px]'>
+            <div className='flex items-center justify-between mb-3'>
+              <p className='text-xs uppercase text-gray-500 tracking-wider flex items-center gap-2'>
                 <Users size={14} />
                 {t('sidebar.peersTitle') || 'Amigos'}
               </p>
-              <button 
-                onClick={() => onSyncPeer && peers && Object.keys(peers).forEach(id => onSyncPeer(id))}
-                className="p-1 rounded hover:bg-white/10 text-gray-500 hover:text-gray-300"
+              <button
+                onClick={() =>
+                  onSyncPeer &&
+                  peers &&
+                  Object.keys(peers).forEach((id) => onSyncPeer(id))
+                }
+                className='p-1 rounded hover:bg-white/10 text-gray-500 hover:text-gray-300'
                 title={t('sidebar.syncAll') || 'Sincronizar todos'}
               >
                 <RefreshCw size={14} />
               </button>
             </div>
-            
-            <div className="space-y-1">
+
+            <div className='space-y-1'>
               {/* Mi Biblioteca (Local) */}
               <button
                 onClick={() => onSelectPeer('local')}
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
-                  selectedPeer === 'local' ? 'bg-blue-500/20 text-blue-400' : 'hover:bg-white/5'
+                  selectedPeer === 'local'
+                    ? 'bg-blue-500/20 text-blue-400'
+                    : 'hover:bg-white/5'
                 }`}
               >
                 <FolderOpen size={20} />
-                <span className="flex-1 text-left text-sm">{t('sidebar.myLibrary') || 'Mi Biblioteca'}</span>
+                <span className='flex-1 text-left text-sm'>
+                  {t('sidebar.myLibrary') || 'Mi Biblioteca'}
+                </span>
               </button>
-              
+
               {/* Peers conectados */}
               {Object.entries(peers || {}).map(([id, peer]) => (
-                <div key={id} className="group relative">
+                <div key={id} className='group relative'>
                   <button
                     onClick={() => onSelectPeer(id)}
                     className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
-                      selectedPeer === id ? 'bg-blue-500/20 text-blue-400' : 'hover:bg-white/5'
+                      selectedPeer === id
+                        ? 'bg-blue-500/20 text-blue-400'
+                        : 'hover:bg-white/5'
                     }`}
                   >
                     {peer.status === 'online' ? (
-                      <Wifi size={18} className="text-green-400" />
+                      <Wifi size={18} className='text-green-400' />
                     ) : (
-                      <WifiOff size={18} className="text-gray-500" />
+                      <WifiOff size={18} className='text-gray-500' />
                     )}
-                    <span className="flex-1 text-left text-sm truncate">{peer.name}</span>
+                    <span className='flex-1 text-left text-sm truncate'>
+                      {peer.name}
+                    </span>
                     {peer.video_count > 0 && (
-                      <span className="text-xs text-gray-500">{peer.video_count}</span>
+                      <span className='text-xs text-gray-500'>
+                        {peer.video_count}
+                      </span>
                     )}
                   </button>
-                  <div className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 flex items-center gap-1">
+                  <div className='absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 flex items-center gap-1'>
                     <button
                       onClick={() => onSyncPeer(id)}
-                      className="p-1.5 rounded text-blue-400 hover:bg-blue-500/20 transition-all"
+                      className='p-1.5 rounded text-blue-400 hover:bg-blue-500/20 transition-all'
                       title={t('sidebar.sync') || 'Sincronizar'}
                     >
                       <RefreshCw size={12} />
                     </button>
                     <button
                       onClick={() => onRemovePeer(id)}
-                      className="p-1.5 rounded text-red-400 hover:bg-red-500/20 transition-all"
+                      className='p-1.5 rounded text-red-400 hover:bg-red-500/20 transition-all'
                       title={t('sidebar.deletePeer') || 'Eliminar'}
                     >
                       <X size={12} />
@@ -217,27 +361,38 @@ export function Sidebar({
                 </div>
               ))}
             </div>
-            
-            <button
-              onClick={() => setShowPeerModal(true)}
-              className="w-full mt-3 py-2.5 border border-dashed border-gray-600 rounded-lg text-gray-400 hover:border-gray-500 hover:text-gray-300 hover:bg-white/5 transition-all flex items-center justify-center gap-2 text-sm"
-            >
-              <Link size={16} />
-              {t('sidebar.addPeer') || 'Conectar amigo'}
-            </button>
+
+            <div className='flex gap-2 mt-3'>
+              <button
+                onClick={() => setShowPeerModal(true)}
+                className='flex-1 py-2.5 border border-dashed border-gray-600 rounded-lg text-gray-400 hover:border-gray-500 hover:text-gray-300 hover:bg-white/5 transition-all flex items-center justify-center gap-2 text-sm'
+              >
+                <Link size={16} />
+                {t('sidebar.addPeer') || 'Conectar'}
+              </button>
+              <button
+                onClick={() => setShowInviteModal(true)}
+                className='py-2.5 px-3 border border-dashed border-gray-600 rounded-lg text-gray-400 hover:border-green-500 hover:text-green-400 hover:bg-green-500/10 transition-all'
+                title={t('sidebar.generateInvite') || 'Generar invitación'}
+              >
+                <Gift size={16} />
+              </button>
+            </div>
           </div>
-          
+
           {/* Navegación de carpetas */}
-          <div className="flex-1 overflow-y-auto p-4 min-w-[320px]">
+          <div className='flex-1 overflow-y-auto p-4 min-w-[320px]'>
             {/* Breadcrumbs */}
-            <div className="flex items-center flex-wrap gap-1 mb-3 p-2.5 bg-white/5 rounded-lg text-sm">
+            <div className='flex items-center flex-wrap gap-1 mb-3 p-2.5 bg-white/5 rounded-lg text-sm'>
               {breadcrumbs.map((crumb, idx) => (
-                <span key={idx} className="flex items-center">
-                  {idx > 0 && <span className="text-gray-600 mx-1">›</span>}
+                <span key={idx} className='flex items-center'>
+                  {idx > 0 && <span className='text-gray-600 mx-1'>›</span>}
                   <button
                     onClick={() => onNavigate(crumb.path)}
                     className={`hover:text-white transition-colors ${
-                      idx === breadcrumbs.length - 1 ? 'text-white font-medium' : 'text-gray-400'
+                      idx === breadcrumbs.length - 1
+                        ? 'text-white font-medium'
+                        : 'text-gray-400'
                     }`}
                   >
                     {crumb.name}
@@ -247,62 +402,76 @@ export function Sidebar({
             </div>
 
             {/* Controles de ordenación */}
-            <div className="flex items-center gap-2 mb-3 p-2 bg-white/5 rounded-lg">
-              <span className="text-xs text-gray-500 uppercase">{t('sidebar.sort.label')}</span>
+            <div className='flex items-center gap-2 mb-3 p-2 bg-white/5 rounded-lg'>
+              <span className='text-xs text-gray-500 uppercase'>
+                {t('sidebar.sort.label')}
+              </span>
               <button
                 onClick={() => toggleSort('date')}
                 className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs transition-colors ${
-                  sortBy === 'date' ? 'bg-blue-500/20 text-blue-400' : 'hover:bg-white/10'
+                  sortBy === 'date'
+                    ? 'bg-blue-500/20 text-blue-400'
+                    : 'hover:bg-white/10'
                 }`}
               >
                 <Calendar size={12} />
                 {t('sidebar.sort.date')}
                 {sortBy === 'date' && (
-                  <span className="text-[10px]">{sortOrder === 'desc' ? '↓' : '↑'}</span>
+                  <span className='text-[10px]'>
+                    {sortOrder === 'desc' ? '↓' : '↑'}
+                  </span>
                 )}
               </button>
               <button
                 onClick={() => toggleSort('name')}
                 className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs transition-colors ${
-                  sortBy === 'name' ? 'bg-blue-500/20 text-blue-400' : 'hover:bg-white/10'
+                  sortBy === 'name'
+                    ? 'bg-blue-500/20 text-blue-400'
+                    : 'hover:bg-white/10'
                 }`}
               >
                 <FileText size={12} />
                 {t('sidebar.sort.name')}
                 {sortBy === 'name' && (
-                  <span className="text-[10px]">{sortOrder === 'desc' ? '↓' : '↑'}</span>
+                  <span className='text-[10px]'>
+                    {sortOrder === 'desc' ? '↓' : '↑'}
+                  </span>
                 )}
               </button>
             </div>
-            
+
             {/* Lista vertical de items */}
-            <div className="space-y-1">
+            <div className='space-y-1'>
               {sortedItems.map((item, idx) => (
                 <button
                   key={idx}
-                  onClick={() => item.type === 'folder' ? onNavigate(item.path) : onPlayVideo(item)}
+                  onClick={() =>
+                    item.type === 'folder'
+                      ? onNavigate(item.path)
+                      : onPlayVideo(item)
+                  }
                   className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-all hover:bg-white/10 text-left ${
-                    item.type === 'video' && currentVideo === item.path 
-                      ? 'bg-green-500/20 border border-green-500/50' 
+                    item.type === 'video' && currentVideo === item.path
+                      ? 'bg-green-500/20 border border-green-500/50'
                       : 'bg-white/5 border border-transparent hover:border-white/10'
                   }`}
                 >
-                  <span className="text-2xl flex-shrink-0">
+                  <span className='text-2xl flex-shrink-0'>
                     {item.type === 'folder' ? '📁' : '🎬'}
                   </span>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">
-                      {item.name}
-                    </p>
-                    <p className="text-xs text-gray-500 flex items-center gap-2 mt-0.5">
+                  <div className='flex-1 min-w-0'>
+                    <p className='text-sm font-medium truncate'>{item.name}</p>
+                    <p className='text-xs text-gray-500 flex items-center gap-2 mt-0.5'>
                       {item.type === 'folder' ? (
-                        <span>{item.item_count} {t('sidebar.items')}</span>
+                        <span>
+                          {item.item_count} {t('sidebar.items')}
+                        </span>
                       ) : (
                         <>
                           <span>{formatSize(item.size)}</span>
                           {item.modified && (
                             <>
-                              <span className="text-gray-600">•</span>
+                              <span className='text-gray-600'>•</span>
                               <span>{formatDate(item.modified)}</span>
                             </>
                           )}
@@ -313,23 +482,23 @@ export function Sidebar({
                 </button>
               ))}
             </div>
-            
+
             {sortedItems.length === 0 && (
-              <div className="text-center py-10 text-gray-500">
-                <div className="text-4xl mb-2 opacity-50">📂</div>
-                <p className="text-sm">{t('sidebar.emptyFolder')}</p>
+              <div className='text-center py-10 text-gray-500'>
+                <div className='text-4xl mb-2 opacity-50'>📂</div>
+                <p className='text-sm'>{t('sidebar.emptyFolder')}</p>
               </div>
             )}
           </div>
         </aside>
-        
+
         {/* Botón colapsar/expandir - SIEMPRE VISIBLE */}
         <button
           onClick={onToggleCollapse}
-          className="absolute top-1/2 -translate-y-1/2 w-6 h-16 bg-dark-800 border border-dark-600 rounded-r-lg flex items-center justify-center text-xs text-gray-400 hover:bg-dark-700 hover:text-white transition-all z-50 shadow-lg"
-          style={{ 
+          className='absolute top-1/2 -translate-y-1/2 w-6 h-16 bg-dark-800 border border-dark-600 rounded-r-lg flex items-center justify-center text-xs text-gray-400 hover:bg-dark-700 hover:text-white transition-all z-50 shadow-lg'
+          style={{
             left: collapsed ? '0' : '320px',
-            borderLeft: collapsed ? '1px solid #333' : 'none'
+            borderLeft: collapsed ? '1px solid #333' : 'none',
           }}
           title={collapsed ? t('sidebar.expand') : t('sidebar.collapse')}
         >
@@ -339,42 +508,54 @@ export function Sidebar({
 
       {/* Modal añadir biblioteca */}
       {showModal && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50" onClick={() => setShowModal(false)}>
-          <div className="bg-dark-800 border border-dark-600 rounded-xl p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
-            <h3 className="text-lg font-semibold mb-4">➕ {t('modal.addLibrary')}</h3>
-            <form onSubmit={handleSubmit} className="space-y-4">
+        <div
+          className='fixed inset-0 bg-black/80 flex items-center justify-center z-50'
+          onClick={() => setShowModal(false)}
+        >
+          <div
+            className='bg-dark-800 border border-dark-600 rounded-xl p-6 w-full max-w-md'
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className='text-lg font-semibold mb-4'>
+              ➕ {t('modal.addLibrary')}
+            </h3>
+            <form onSubmit={handleSubmit} className='space-y-4'>
               <div>
-                <label className="block text-sm text-gray-400 mb-1.5">{t('modal.name')}</label>
+                <label className='block text-sm text-gray-400 mb-1.5'>
+                  {t('modal.name')}
+                </label>
                 <input
-                  type="text"
+                  type='text'
                   value={newLibName}
                   onChange={(e) => setNewLibName(e.target.value)}
                   placeholder={t('modal.namePlaceholder')}
-                  className="w-full px-4 py-2.5 bg-dark-900 border border-dark-600 rounded-lg text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
+                  className='w-full px-4 py-2.5 bg-dark-900 border border-dark-600 rounded-lg text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none'
                   autoFocus
                 />
               </div>
               <div>
-                <label className="block text-sm text-gray-400 mb-1.5">{t('modal.path')}</label>
+                <label className='block text-sm text-gray-400 mb-1.5'>
+                  {t('modal.path')}
+                </label>
                 <input
-                  type="text"
+                  type='text'
                   value={newLibPath}
                   onChange={(e) => setNewLibPath(e.target.value)}
                   placeholder={t('modal.pathPlaceholder')}
-                  className="w-full px-4 py-2.5 bg-dark-900 border border-dark-600 rounded-lg text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
+                  className='w-full px-4 py-2.5 bg-dark-900 border border-dark-600 rounded-lg text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none'
                 />
               </div>
-              <div className="flex gap-3 pt-2">
+              <div className='flex gap-3 pt-2'>
                 <button
-                  type="button"
+                  type='button'
                   onClick={() => setShowModal(false)}
-                  className="flex-1 px-4 py-2.5 bg-white/10 rounded-lg hover:bg-white/15 transition-colors"
+                  className='flex-1 px-4 py-2.5 bg-white/10 rounded-lg hover:bg-white/15 transition-colors'
                 >
                   {t('modal.cancel')}
                 </button>
                 <button
-                  type="submit"
-                  className="flex-1 px-4 py-2.5 bg-blue-600 rounded-lg hover:bg-blue-500 transition-colors"
+                  type='submit'
+                  className='flex-1 px-4 py-2.5 bg-blue-600 rounded-lg hover:bg-blue-500 transition-colors'
                 >
                   {t('modal.add')}
                 </button>
@@ -386,60 +567,187 @@ export function Sidebar({
 
       {/* Modal añadir peer */}
       {showPeerModal && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50" onClick={() => setShowPeerModal(false)}>
-          <div className="bg-dark-800 border border-dark-600 rounded-xl p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
-            <h3 className="text-lg font-semibold mb-4">🔗 {t('modal.addPeer') || 'Conectar amigo'}</h3>
-            <p className="text-sm text-gray-400 mb-4">
-              {t('modal.addPeerDesc') || 'Conecta con el servidor de un amigo para ver su biblioteca compartida.'}
-            </p>
-            <form onSubmit={handleAddPeer} className="space-y-4">
+        <div
+          className='fixed inset-0 bg-black/80 flex items-center justify-center z-50'
+          onClick={() => setShowPeerModal(false)}
+        >
+          <div
+            className='bg-dark-800 border border-dark-600 rounded-xl p-6 w-full max-w-md'
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className='text-lg font-semibold mb-2'>
+              🔗 {t('modal.addPeer') || 'Conectar con amigo'}
+            </h3>
+            <form onSubmit={handleAddPeer} className='space-y-4'>
               <div>
-                <label className="block text-sm text-gray-400 mb-1.5">{t('modal.peerName') || 'Nombre'}</label>
+                <label className='block text-sm text-gray-400 mb-1.5'>
+                  {t('modal.name')}
+                </label>
                 <input
-                  type="text"
+                  type='text'
                   value={newPeerName}
                   onChange={(e) => setNewPeerName(e.target.value)}
-                  placeholder={t('modal.peerNamePlaceholder') || 'Ej: Biblioteca de Juan'}
-                  className="w-full px-4 py-2.5 bg-dark-900 border border-dark-600 rounded-lg text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
+                  placeholder={t('modal.namePlaceholder')}
+                  className='w-full px-4 py-2.5 bg-dark-900 border border-dark-600 rounded-lg text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none'
                   autoFocus
                 />
               </div>
               <div>
-                <label className="block text-sm text-gray-400 mb-1.5">{t('modal.peerUrl') || 'URL del servidor'}</label>
+                <label className='block text-sm text-gray-400 mb-1.5'>
+                  {t('modal.url')}
+                </label>
                 <input
-                  type="text"
+                  type='text'
                   value={newPeerUrl}
                   onChange={(e) => setNewPeerUrl(e.target.value)}
-                  placeholder={t('modal.peerUrlPlaceholder') || 'Ej: http://192.168.1.50:8080 o https://amigo.duckdns.org'}
-                  className="w-full px-4 py-2.5 bg-dark-900 border border-dark-600 rounded-lg text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
+                  placeholder={t('modal.urlPlaceholder')}
+                  className='w-full px-4 py-2.5 bg-dark-900 border border-dark-600 rounded-lg text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none'
                 />
               </div>
               <div>
-                <label className="block text-sm text-gray-400 mb-1.5">{t('modal.peerToken') || 'Token (opcional)'}</label>
+                <label className='block text-sm text-gray-400 mb-1.5'>
+                  Código de invitación
+                </label>
                 <input
-                  type="text"
-                  value={newPeerToken}
-                  onChange={(e) => setNewPeerToken(e.target.value)}
-                  placeholder={t('modal.peerTokenPlaceholder') || 'Token de autenticación si es requerido'}
-                  className="w-full px-4 py-2.5 bg-dark-900 border border-dark-600 rounded-lg text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
+                  type='text'
+                  value={newPeerCode}
+                  onChange={(e) => setNewPeerCode(e.target.value.toUpperCase())}
+                  placeholder='ABC-123-XYZ'
+                  className='w-full px-4 py-2.5 bg-dark-900 border border-dark-600 rounded-lg text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none font-mono tracking-wider'
                 />
               </div>
-              <div className="flex gap-3 pt-2">
+              <div className='flex gap-3 pt-2'>
                 <button
-                  type="button"
+                  type='button'
                   onClick={() => setShowPeerModal(false)}
-                  className="flex-1 px-4 py-2.5 bg-white/10 rounded-lg hover:bg-white/15 transition-colors"
+                  className='flex-1 px-4 py-2.5 bg-white/10 rounded-lg hover:bg-white/15 transition-colors'
                 >
                   {t('modal.cancel')}
                 </button>
                 <button
-                  type="submit"
-                  className="flex-1 px-4 py-2.5 bg-blue-600 rounded-lg hover:bg-blue-500 transition-colors"
+                  type='submit'
+                  className='flex-1 px-4 py-2.5 bg-blue-600 rounded-lg hover:bg-blue-500 transition-colors'
                 >
                   {t('modal.connect') || 'Conectar'}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal generar invitación */}
+      {showInviteModal && (
+        <div
+          className='fixed inset-0 bg-black/80 flex items-center justify-center z-50'
+          onClick={() => setShowInviteModal(false)}
+        >
+          <div
+            className='bg-dark-800 border border-dark-600 rounded-xl p-6 w-full max-w-md'
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className='text-lg font-semibold mb-2'>
+              🎁 {t('modal.generateInvite') || 'Generar invitación'}
+            </h3>
+            <p className='text-sm text-gray-400 mb-4'>
+              {t('modal.inviteDescription')}
+            </p>
+
+            {!inviteCode ? (
+              <div className='text-center py-6'>
+                <button
+                  onClick={generateInvite}
+                  disabled={inviteLoading}
+                  className='px-6 py-3 bg-green-600 rounded-lg hover:bg-green-500 transition-colors disabled:opacity-50 flex items-center gap-2 mx-auto'
+                >
+                  {inviteLoading ? (
+                    'Generando...'
+                  ) : (
+                    <>
+                      <Gift size={18} /> Generar código
+                    </>
+                  )}
+                </button>
+              </div>
+            ) : (
+              <div className='bg-dark-900 border border-green-500/30 rounded-lg p-4 mb-4'>
+                <p className='text-sm text-gray-400 mb-2'>
+                  Comparte este código con tu amigo:
+                </p>
+                <div className='flex items-center gap-2'>
+                  <code className='flex-1 bg-dark-800 px-4 py-3 rounded-lg text-2xl font-mono text-green-400 tracking-wider text-center'>
+                    {inviteCode}
+                  </code>
+                  <button
+                    onClick={() => copyToClipboard(inviteCode)}
+                    className='p-3 bg-white/10 rounded-lg hover:bg-white/20 transition-colors'
+                    title='Copiar'
+                  >
+                    <Copy size={18} />
+                  </button>
+                </div>
+                {copied && (
+                  <p className='text-sm text-green-400 mt-2 text-center'>
+                    ¡Copiado!
+                  </p>
+                )}
+                <p className='text-xs text-gray-500 mt-3'>
+                  El código expira en 7 días y solo puede usarse una vez.
+                </p>
+              </div>
+            )}
+
+            {/* Lista de invitaciones activas */}
+            {myInvites.length > 0 && (
+              <div className='mt-4'>
+                <h4 className='text-sm font-medium text-gray-400 mb-2'>
+                  Tus invitaciones
+                </h4>
+                <div className='space-y-2 max-h-40 overflow-y-auto'>
+                  {myInvites.map((inv) => (
+                    <div
+                      key={inv.code}
+                      className={`flex items-center justify-between p-2 rounded-lg text-sm ${
+                        inv.used
+                          ? 'bg-gray-800/50 text-gray-500'
+                          : 'bg-dark-900'
+                      }`}
+                    >
+                      <div>
+                        <span className='font-mono'>{inv.code}</span>
+                        {inv.used && (
+                          <span className='text-xs ml-2'>
+                            ✓ Usado por {inv.used_by}
+                          </span>
+                        )}
+                        {inv.expired && !inv.used && (
+                          <span className='text-xs ml-2 text-red-400'>
+                            Expirado
+                          </span>
+                        )}
+                      </div>
+                      {!inv.used && !inv.expired && (
+                        <button
+                          onClick={() => copyToClipboard(inv.code)}
+                          className='p-1 hover:bg-white/10 rounded'
+                        >
+                          <Copy size={14} />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className='flex justify-end mt-4'>
+              <button
+                onClick={() => setShowInviteModal(false)}
+                className='px-4 py-2 bg-white/10 rounded-lg hover:bg-white/15 transition-colors'
+              >
+                Cerrar
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -458,9 +766,9 @@ function formatSize(bytes) {
 function formatDate(timestamp) {
   if (!timestamp) return '';
   const date = new Date(timestamp * 1000);
-  return date.toLocaleDateString('en-US', { 
-    day: '2-digit', 
-    month: '2-digit', 
-    year: 'numeric' 
+  return date.toLocaleDateString('en-US', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
   });
 }

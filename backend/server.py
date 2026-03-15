@@ -15,6 +15,14 @@ import threading
 import time
 import requests
 
+# Fase 2: JWT para tokens de video seguros
+try:
+    import jwt
+    JWT_AVAILABLE = True
+except ImportError:
+    JWT_AVAILABLE = False
+    print("⚠️ PyJWT no instalado. Instálalo con: pip install PyJWT")
+
 app = Flask(__name__)
 
 # Habilitar CORS si está configurado
@@ -30,6 +38,12 @@ LIBRARIES_FILE = os.environ.get('LIBRARIES_FILE', '/app/.libraries.json')
 STATIC_FOLDER = os.environ.get('STATIC_FOLDER', '/app/static')
 PEERS_FILE = os.environ.get('PEERS_FILE', '/app/.peers.json')
 FEDERATION_SYNC_INTERVAL = int(os.environ.get('FEDERATION_SYNC_INTERVAL', '300'))  # 5 minutos
+
+# Configuración JWT para Fase 2
+JWT_SECRET = os.environ.get('JWT_SECRET', secrets.token_hex(32))
+JWT_ALGORITHM = 'HS256'
+VIDEO_TOKEN_EXPIRY = int(os.environ.get('VIDEO_TOKEN_EXPIRY', '3600'))  # 1 hora por defecto
+ALLOWED_PEERS_FILE = os.environ.get('ALLOWED_PEERS_FILE', '/app/.allowed_peers.json')  # Peers que pueden pedir tokens
 
 # Datos en memoria
 peers_cache = {}  # {peer_id: {catalog, last_sync, status}}
@@ -54,6 +68,69 @@ def save_peers(peers):
 def generate_peer_token():
     """Genera un token seguro para autenticación entre peers"""
     return secrets.token_urlsafe(32)
+
+
+def generate_video_token(video_path, peer_id='local', expiry_seconds=VIDEO_TOKEN_EXPIRY):
+    """Genera un token JWT para acceder a un video específico"""
+    if not JWT_AVAILABLE:
+        return None
+    
+    payload = {
+        'video_path': video_path,
+        'peer_id': peer_id,
+        'iat': datetime.utcnow(),
+        'exp': datetime.utcnow() + timedelta(seconds=expiry_seconds),
+        'jti': secrets.token_hex(16)  # JWT ID único para revocación si es necesario
+    }
+    
+    token = jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+    return token
+
+
+def verify_video_token(token):
+    """Verifica un token JWT de video"""
+    if not JWT_AVAILABLE:
+        return None
+    
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        return payload
+    except jwt.ExpiredSignatureError:
+        return {'error': 'Token expirado'}
+    except jwt.InvalidTokenError:
+        return {'error': 'Token inválido'}
+
+
+def load_allowed_peers():
+    """Carga la lista de peers autorizados a solicitar tokens"""
+    if os.path.exists(ALLOWED_PEERS_FILE):
+        with open(ALLOWED_PEERS_FILE, 'r') as f:
+            return json.load(f)
+    return {}
+
+
+def save_allowed_peer(peer_id, peer_info):
+    """Guarda un peer autorizado"""
+    allowed = load_allowed_peers()
+    allowed[peer_id] = {
+        **peer_info,
+        'added': datetime.now().isoformat()
+    }
+    os.makedirs(os.path.dirname(ALLOWED_PEERS_FILE), exist_ok=True)
+    with open(ALLOWED_PEERS_FILE, 'w') as f:
+        json.dump(allowed, f, indent=2)
+
+
+def is_peer_allowed(peer_id, token):
+    """Verifica si un peer está autorizado (con token válido)"""
+    allowed = load_allowed_peers()
+    
+    if peer_id not in allowed:
+        return False
+    
+    peer = allowed[peer_id]
+    # Verificar que el token coincida
+    return peer.get('token') == token
 
 
 def get_catalog_for_sharing():
@@ -283,7 +360,7 @@ def get_folder_contents():
 @app.route('/videos/<path:filename>')
 @cross_origin(origins="*")
 def serve_video(filename):
-    """Sirve archivos de video"""
+    """Sirve archivos de video (con soporte para tokens JWT de Fase 2)"""
     video_path = Path(VIDEOS_BASE_DIR) / filename
     
     # Security check
@@ -294,6 +371,23 @@ def serve_video(filename):
     
     if not video_path.exists():
         return jsonify({'error': 'Video not found'}), 404
+    
+    # Fase 2: Verificar token JWT si viene como parámetro (acceso desde peers)
+    token = request.args.get('token')
+    if token:
+        if not JWT_AVAILABLE:
+            return jsonify({'error': 'JWT no disponible en el servidor'}), 501
+        
+        payload = verify_video_token(token)
+        if isinstance(payload, dict) and 'error' in payload:
+            return jsonify({'error': payload['error']}), 401
+        
+        # Verificar que el token es para este video específico
+        if payload.get('video_path') != filename:
+            return jsonify({'error': 'Token no válido para este video'}), 403
+    
+    # Si no hay token, permitimos acceso local (o podríamos requerir auth)
+    # En producción, podrías querer requerir token siempre
     
     return send_file(str(video_path), mimetype='video/mp4')
 
@@ -484,14 +578,27 @@ def force_sync_peer(peer_id):
 @app.route('/api/federation/catalog')
 def federation_catalog():
     """Devuelve mi catálogo para que otros peers lo consuman"""
-    # Verificar autenticación
+    # Verificar autenticación (token o código de invitación)
     peer_token = request.headers.get('X-Peer-Token')
     peer_id = request.headers.get('X-Peer-Id')
     
-    # En Fase 1: aceptamos cualquier token no vacío (se puede mejorar)
-    # Idealmente verificaríamos contra una lista de peers que nos han dado permiso
-    if not peer_token:
-        return jsonify({'error': 'Autenticación requerida'}), 401
+    # Verificar contra lista de peers autorizados
+    allowed = load_allowed_peers()
+    
+    is_authorized = False
+    if peer_token:
+        # Buscar si algún peer autorizado tiene este token
+        for pid, pinfo in allowed.items():
+            if pinfo.get('token') == peer_token:
+                is_authorized = True
+                break
+    
+    # En modo desarrollo, también permitir sin token (para pruebas)
+    if not is_authorized and os.environ.get('FEDERATION_ALLOW_ALL'):
+        is_authorized = True
+    
+    if not is_authorized:
+        return jsonify({'error': 'Autenticación requerida. Token inválido.'}), 401
     
     catalog = get_catalog_for_sharing()
     catalog['shared_by'] = {
@@ -537,15 +644,32 @@ def federation_unified():
 
 @app.route('/api/federation/invite', methods=['POST'])
 def create_invitation():
-    """Crea una invitación para que alguien se conecte a mí"""
+    """
+    Crea una invitación simple con código corto.
+    Tu amigo genera un código, te lo manda, y tú lo usas para conectarte.
+    """
     data = request.json
     
+    # Generar código corto y legible (ej: ABC-123-XYZ)
+    def generate_invite_code():
+        parts = []
+        for _ in range(3):
+            parts.append(''.join(secrets.choice('ABCDEFGHJKLMNPQRSTUVWXYZ23456789') for _ in range(3)))
+        return '-'.join(parts)
+    
+    invite_code = generate_invite_code()
+    
     invitation = {
-        'token': generate_peer_token(),
+        'code': invite_code,
+        'token': generate_peer_token(),  # Token interno para autenticación
         'name': data.get('name', 'Invitado'),
-        'permissions': data.get('permissions', ['read_catalog']),
+        'description': data.get('description', ''),
+        'permissions': data.get('permissions', ['read_catalog', 'read_videos']),
         'created': datetime.now().isoformat(),
-        'expires': (datetime.now() + timedelta(days=7)).isoformat()
+        'expires': (datetime.now() + timedelta(days=7)).isoformat(),
+        'used': False,
+        'used_by': None,
+        'used_at': None
     }
     
     # Guardar invitación pendiente
@@ -555,17 +679,321 @@ def create_invitation():
         with open(invitations_file, 'r') as f:
             invitations = json.load(f)
     
-    invitations[invitation['token']] = invitation
+    invitations[invite_code] = invitation
     
     os.makedirs(os.path.dirname(invitations_file), exist_ok=True)
     with open(invitations_file, 'w') as f:
         json.dump(invitations, f, indent=2)
     
     return jsonify({
-        'invitation_token': invitation['token'],
+        'success': True,
+        'invite_code': invite_code,
         'expires': invitation['expires'],
-        'invite_url': f"/api/federation/join?token={invitation['token']}"
+        'message': 'Comparte este código con tu amigo para que se conecte a tu biblioteca'
     })
+
+
+# ============================================
+# RUTAS API - FEDERACIÓN (INVITACIONES SIMPLES)
+# ============================================
+
+@app.route('/api/federation/join', methods=['POST'])
+def join_with_invite():
+    """
+    Usar un código de invitación para conectarse a un amigo.
+    El usuario introduce: URL del amigo + Código de invitación
+    """
+    data = request.json
+    
+    peer_url = data.get('url', '').rstrip('/')
+    invite_code = data.get('invite_code', '').upper().replace(' ', '-')
+    my_name = data.get('my_name', 'Amigo')
+    
+    if not peer_url:
+        return jsonify({'error': 'URL del amigo requerida'}), 400
+    
+    if not invite_code:
+        return jsonify({'error': 'Código de invitación requerido'}), 400
+    
+    try:
+        # Verificar el código con el servidor del amigo
+        verify_url = f"{peer_url}/api/federation/verify-invite"
+        response = requests.post(verify_url, json={
+            'invite_code': invite_code,
+            'peer_name': my_name
+        }, timeout=10)
+        
+        if response.status_code != 200:
+            error_msg = response.json().get('error', 'Código inválido o expirado')
+            return jsonify({'error': error_msg}), 400
+        
+        invite_data = response.json()
+        
+        # El código es válido, nos ha dado un token de acceso
+        peer_token = invite_data.get('access_token')
+        peer_name = invite_data.get('peer_name', 'Amigo')
+        my_assigned_id = invite_data.get('your_id')  # ID que nos asigna el peer
+        
+        # Guardar este peer en nuestra configuración
+        peer_id = secrets.token_hex(8)
+        
+        peers = load_peers()
+        peers[peer_id] = {
+            'id': peer_id,
+            'name': peer_name,
+            'url': peer_url,
+            'token': peer_token,  # Token que nos dio el amigo para autenticarnos
+            'invite_code': invite_code,
+            'my_id': my_assigned_id,  # Cómo nos conoce él
+            'enabled': True,
+            'created': datetime.now().isoformat()
+        }
+        
+        save_peers(peers)
+        
+        # Sincronizar inmediatamente
+        sync_peer(peer_id, peers[peer_id])
+        
+        return jsonify({
+            'success': True,
+            'peer_id': peer_id,
+            'peer_name': peer_name,
+            'message': f'Conectado exitosamente a {peer_name}'
+        })
+        
+    except requests.exceptions.ConnectionError:
+        return jsonify({'error': 'No se pudo conectar con el servidor del amigo. Verifica la URL.'}), 503
+    except Exception as e:
+        return jsonify({'error': f'Error conectando: {str(e)}'}), 500
+
+
+@app.route('/api/federation/verify-invite', methods=['POST'])
+def verify_invite():
+    """
+    Verifica un código de invitación y devuelve token de acceso.
+    Llamado por el servidor del amigo cuando alguien quiere unirse.
+    """
+    data = request.json
+    invite_code = data.get('invite_code', '').upper().replace(' ', '-')
+    peer_name = data.get('peer_name', 'Invitado')
+    
+    invitations_file = PEERS_FILE.replace('.json', '.invitations.json')
+    
+    if not os.path.exists(invitations_file):
+        return jsonify({'error': 'No hay invitaciones activas'}), 404
+    
+    with open(invitations_file, 'r') as f:
+        invitations = json.load(f)
+    
+    if invite_code not in invitations:
+        return jsonify({'error': 'Código de invitación inválido'}), 400
+    
+    invitation = invitations[invite_code]
+    
+    # Verificar expiración
+    if datetime.now() > datetime.fromisoformat(invitation['expires']):
+        return jsonify({'error': 'Código de invitación expirado'}), 400
+    
+    # Verificar si ya fue usado
+    if invitation.get('used'):
+        return jsonify({'error': 'Código de invitación ya fue usado'}), 400
+    
+    # Marcar como usado
+    invitation['used'] = True
+    invitation['used_by'] = peer_name
+    invitation['used_at'] = datetime.now().isoformat()
+    
+    # Generar un ID único para este peer
+    peer_id = secrets.token_hex(8)
+    
+    # Guardar en lista de peers autorizados
+    save_allowed_peer(peer_id, {
+        'name': peer_name,
+        'token': invitation['token'],
+        'invite_code': invite_code,
+        'added_via_invite': True
+    })
+    
+    # Guardar invitaciones actualizadas
+    with open(invitations_file, 'w') as f:
+        json.dump(invitations, f, indent=2)
+    
+    # Responder con token de acceso
+    return jsonify({
+        'success': True,
+        'access_token': invitation['token'],
+        'peer_name': invitation.get('name', 'Mi Biblioteca'),
+        'your_id': peer_id,
+        'permissions': invitation.get('permissions', ['read_catalog'])
+    })
+
+
+@app.route('/api/federation/my-invites', methods=['GET'])
+def list_my_invites():
+    """Lista las invitaciones que he generado"""
+    invitations_file = PEERS_FILE.replace('.json', '.invitations.json')
+    
+    if not os.path.exists(invitations_file):
+        return jsonify({'invites': []})
+    
+    with open(invitations_file, 'r') as f:
+        invitations = json.load(f)
+    
+    # Filtrar solo las no expiradas
+    active_invites = []
+    for code, inv in invitations.items():
+        is_expired = datetime.now() > datetime.fromisoformat(inv['expires'])
+        active_invites.append({
+            'code': code,
+            'name': inv.get('name'),
+            'description': inv.get('description'),
+            'created': inv['created'],
+            'expires': inv['expires'],
+            'used': inv.get('used', False),
+            'used_by': inv.get('used_by'),
+            'expired': is_expired
+        })
+    
+    return jsonify({'invites': active_invites})
+
+
+# ============================================
+# RUTAS API - FEDERACIÓN FASE 2 (JWT TOKENS)
+# ============================================
+
+@app.route('/api/federation/video-token', methods=['POST'])
+def request_video_token():
+    """
+    Fase 2: Un peer solicita un token para ver un video específico.
+    Este endpoint debe ser llamado por el backend del peer, no directamente por el frontend.
+    """
+    if not JWT_AVAILABLE:
+        return jsonify({'error': 'JWT no disponible. Instala: pip install PyJWT'}), 501
+    
+    data = request.json
+    video_path = data.get('video_path')
+    peer_id = request.headers.get('X-Peer-Id')
+    peer_token = request.headers.get('X-Peer-Token')
+    
+    if not video_path:
+        return jsonify({'error': 'video_path requerido'}), 400
+    
+    # Verificar que el peer está autorizado
+    if peer_id and peer_token:
+        if not is_peer_allowed(peer_id, peer_token):
+            return jsonify({'error': 'Peer no autorizado'}), 403
+    
+    # Verificar que el video existe
+    full_path = Path(VIDEOS_BASE_DIR) / video_path
+    try:
+        full_path.relative_to(Path(VIDEOS_BASE_DIR))
+    except ValueError:
+        return jsonify({'error': 'Invalid video path'}), 403
+    
+    if not full_path.exists():
+        return jsonify({'error': 'Video no encontrado'}), 404
+    
+    # Generar token JWT
+    token = generate_video_token(video_path, peer_id)
+    
+    return jsonify({
+        'token': token,
+        'video_path': video_path,
+        'expires_in': VIDEO_TOKEN_EXPIRY,
+        'expires_at': (datetime.utcnow() + timedelta(seconds=VIDEO_TOKEN_EXPIRY)).isoformat()
+    })
+
+
+@app.route('/api/federation/authorize-peer', methods=['POST'])
+def authorize_peer():
+    """
+    Autoriza a un peer a solicitar tokens de video.
+    Esto se hace cuando aceptamos una invitación o queremos dar acceso manual.
+    """
+    data = request.json
+    peer_id = data.get('peer_id')
+    peer_name = data.get('peer_name', 'Peer')
+    peer_token = data.get('peer_token')
+    
+    if not peer_id or not peer_token:
+        return jsonify({'error': 'peer_id y peer_token requeridos'}), 400
+    
+    save_allowed_peer(peer_id, {
+        'name': peer_name,
+        'token': peer_token
+    })
+    
+    return jsonify({
+        'success': True,
+        'peer_id': peer_id,
+        'message': f'Peer {peer_name} autorizado para solicitar tokens de video'
+    })
+
+
+@app.route('/api/federation/peers', methods=['GET'])
+def list_authorized_peers():
+    """Lista los peers autorizados (para administración)"""
+    allowed = load_allowed_peers()
+    return jsonify(allowed)
+
+
+@app.route('/api/peers/<peer_id>/video-url', methods=['POST'])
+def get_peer_video_url(peer_id):
+    """
+    Fase 2: Frontend pide a SU backend que obtenga URL firmada para video de un peer.
+    Este es el flujo completo:
+    1. Frontend (tu app) pide a tu backend: "Quiero ver video X del peer Y"
+    2. Tu backend pide token al backend del peer Y
+    3. Tu backend devuelve al frontend: URL con token incluido
+    4. Frontend reproduce directamente desde peer Y con el token
+    """
+    data = request.json
+    video_path = data.get('video_path')
+    
+    if not video_path:
+        return jsonify({'error': 'video_path requerido'}), 400
+    
+    # Cargar config del peer
+    peers = load_peers()
+    if peer_id not in peers:
+        return jsonify({'error': 'Peer no encontrado'}), 404
+    
+    peer = peers[peer_id]
+    
+    try:
+        # Solicitar token al peer remoto
+        token_url = f"{peer['url']}/api/federation/video-token"
+        headers = {
+            'X-Peer-Id': peer.get('my_id', 'unknown'),
+            'X-Peer-Token': peer.get('token', ''),
+            'Content-Type': 'application/json'
+        }
+        payload = {'video_path': video_path}
+        
+        response = requests.post(token_url, json=payload, headers=headers, timeout=10)
+        
+        if response.status_code == 200:
+            token_data = response.json()
+            
+            # Construir URL completa con token
+            video_url = f"{peer['url']}/videos/{video_path}?token={token_data['token']}"
+            
+            return jsonify({
+                'success': True,
+                'video_url': video_url,
+                'expires_in': token_data.get('expires_in', VIDEO_TOKEN_EXPIRY),
+                'peer_id': peer_id
+            })
+        else:
+            error_data = response.json() if response.text else {'error': 'Unknown error'}
+            return jsonify({
+                'error': 'Error obteniendo token del peer',
+                'peer_error': error_data,
+                'status_code': response.status_code
+            }), 502
+            
+    except Exception as e:
+        return jsonify({'error': f'Error conectando con peer: {str(e)}'}), 503
 
 
 # ============================================

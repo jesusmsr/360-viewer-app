@@ -187,8 +187,10 @@ export function useVideo() {
     }
     
     // Construir URL completa del video
+    // Fase 2: Si es URL completa (http/https), usar directamente (viene de peer con token)
+    // Si no, añadir base local
     const videoUrl = src.startsWith('http') ? src : `${VIDEO_BASE}/${src}`;
-    console.log('Loading video:', videoUrl);
+    console.log('Loading video:', videoUrl.substring(0, 100) + '...'); // Truncate para no loggear tokens largos
     
     video.pause();
     video.src = videoUrl;

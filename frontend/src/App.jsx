@@ -34,6 +34,9 @@ function App() {
 
   const {
     libraries,
+    peers,
+    selectedPeer,
+    setSelectedPeer,
     currentPath,
     items,
     breadcrumbs,
@@ -41,6 +44,11 @@ function App() {
     browseDirectory,
     addLibrary,
     deleteLibrary,
+    addPeer,
+    removePeer,
+    syncPeer,
+    getVideoUrl,
+    refreshPeers,
   } = useLibraries();
 
   // Guardar estado del sidebar
@@ -61,7 +69,14 @@ function App() {
 
   const handleSelectLibrary = useCallback((id) => {
     setCurrentLibrary(id);
-  }, []);
+    setSelectedPeer('local'); // Volver a local al seleccionar biblioteca
+  }, [setSelectedPeer]);
+
+  const handleSelectPeer = useCallback((peerId) => {
+    setSelectedPeer(peerId);
+    setCurrentLibrary(null); // Limpiar biblioteca al seleccionar peer
+    browseDirectory('', peerId); // Cargar items del peer
+  }, [browseDirectory, setSelectedPeer]);
 
   const handleNavigate = useCallback(
     (path) => {
@@ -71,12 +86,31 @@ function App() {
   );
 
   const handlePlayVideo = useCallback(
-    (videoItem) => {
+    async (videoItem) => {
       setCurrentVideo(videoItem.path);
       setCurrentVideoName(videoItem.name);
-      loadVideo(videoItem.path);  // Sin prefijo, useVideo lo añade
+      
+      // Fase 2: Si es video de peer, obtener URL firmada primero
+      const peerId = videoItem.source || selectedPeer;
+      
+      if (peerId && peerId !== 'local') {
+        // Video de peer - solicitar token
+        console.log(`Solicitando token para video de peer ${peerId}:`, videoItem.path);
+        const result = await getVideoUrl(videoItem.path, peerId);
+        
+        if (result.success) {
+          console.log('Token obtenido, reproduciendo:', result.videoUrl);
+          loadVideo(result.videoUrl);  // URL completa con token
+        } else {
+          console.error('Error obteniendo token:', result.error);
+          alert(`Error: ${result.error}`);
+        }
+      } else {
+        // Video local - reproducción directa
+        loadVideo(videoItem.path);  // Sin prefijo, useVideo lo añade
+      }
     },
-    [loadVideo],
+    [loadVideo, getVideoUrl, selectedPeer],
   );
 
   const handleAddLibrary = useCallback(
@@ -99,6 +133,37 @@ function App() {
     [deleteLibrary, currentLibrary, t],
   );
 
+  // Handlers para peers (Fase 1 & 2)
+  const handleAddPeer = useCallback(
+    async (peerData) => {
+      const result = await addPeer(peerData);
+      return result;
+    },
+    [addPeer],
+  );
+
+  const handleRemovePeer = useCallback(
+    async (peerId) => {
+      if (confirm(t('confirm.deletePeer') || '¿Eliminar conexión con este amigo?')) {
+        const result = await removePeer(peerId);
+        if (result && selectedPeer === peerId) {
+          setSelectedPeer('local');
+        }
+        return result;
+      }
+      return false;
+    },
+    [removePeer, selectedPeer, t],
+  );
+
+  const handleSyncPeer = useCallback(
+    async (peerId) => {
+      const result = await syncPeer(peerId);
+      return result;
+    },
+    [syncPeer],
+  );
+
   return (
     <div className='flex h-screen bg-dark-900'>
       {/* Sidebar */}
@@ -108,6 +173,13 @@ function App() {
         onSelectLibrary={handleSelectLibrary}
         onAddLibrary={handleAddLibrary}
         onDeleteLibrary={handleDeleteLibrary}
+        peers={peers}
+        selectedPeer={selectedPeer}
+        onSelectPeer={handleSelectPeer}
+        onAddPeer={handleAddPeer}
+        onRemovePeer={handleRemovePeer}
+        onSyncPeer={handleSyncPeer}
+        onRefreshPeers={refreshPeers}
         currentPath={currentPath}
         breadcrumbs={breadcrumbs}
         items={items}

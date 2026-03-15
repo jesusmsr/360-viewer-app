@@ -189,6 +189,48 @@ export function useLibraries() {
     }
   }, [fetchLibraries]);
 
+  // FASE 2: Obtener URL de video (local o con token de peer)
+  const getVideoUrl = useCallback(async (videoPath, peerId = 'local') => {
+    if (peerId === 'local') {
+      // Video local - URL directa
+      return {
+        success: true,
+        videoUrl: `/videos/${encodeURIComponent(videoPath)}`,
+        isLocal: true
+      };
+    }
+    
+    // Video de peer - Solicitar token a nuestro backend
+    try {
+      const response = await fetch(`${API_BASE}/peers/${peerId}/video-url`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ video_path: videoPath })
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        return {
+          success: true,
+          videoUrl: data.video_url,
+          expiresIn: data.expires_in,
+          isLocal: false
+        };
+      } else {
+        const error = await response.json();
+        return {
+          success: false,
+          error: error.error || 'Error obteniendo token de video'
+        };
+      }
+    } catch (err) {
+      return {
+        success: false,
+        error: 'Error de conexión solicitando token'
+      };
+    }
+  }, []);
+
   return {
     libraries,
     peers,
@@ -205,6 +247,7 @@ export function useLibraries() {
     addPeer,
     removePeer,
     syncPeer,
-    refreshPeers: fetchPeers
+    refreshPeers: fetchPeers,
+    getVideoUrl  // Fase 2: función para obtener URLs firmadas
   };
 }
