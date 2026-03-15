@@ -31,7 +31,9 @@
     "play": "Play (Space)",
     "pause": "Pause (Space)",
     "unmute": "Unmute",
-    "mute": "Mute"
+    "mute": "Mute",
+    "hintMsg": "🖱️ Drag to rotate | ⏯️ Press spacebar to play/pause",
+    "selectVideo": "Select a video to play"
   },
   "confirm": {
     "deleteLibrary": "Delete this library?"

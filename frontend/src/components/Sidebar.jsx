@@ -1,24 +1,15 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-  Folder,
-  FolderOpen,
   Plus,
-  X,
   ChevronLeft,
   ChevronRight,
-  ArrowUpDown,
   Calendar,
   FileText,
 } from 'lucide-react';
 
 export function Sidebar({
-  libraries,
-  currentLibrary,
-  onSelectLibrary,
   onAddLibrary,
-  onDeleteLibrary,
-  currentPath,
   breadcrumbs,
   items,
   onNavigate,
