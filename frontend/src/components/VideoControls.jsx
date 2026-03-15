@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Play, Pause, Volume2, VolumeX } from 'lucide-react';
 
 export function VideoControls({
@@ -13,6 +14,7 @@ export function VideoControls({
   onVolumeChange,
   onToggleMute
 }) {
+  const { t } = useTranslation();
   const [isDragging, setIsDragging] = useState(false);
   const [dragValue, setDragValue] = useState(0);
   const sliderRef = useRef(null);
@@ -90,7 +92,7 @@ export function VideoControls({
       <button
         onClick={onTogglePlay}
         className="w-11 h-11 rounded-full bg-blue-600 hover:bg-blue-500 flex items-center justify-center transition-all hover:scale-105"
-        title={isPlaying ? 'Pausa (Espacio)' : 'Play (Espacio)'}
+        title={isPlaying ? t('controls.pause') : t('controls.play')}
       >
         {isPlaying ? <Pause size={20} fill="white" /> : <Play size={20} fill="white" className="ml-0.5" />}
       </button>
@@ -129,7 +131,7 @@ export function VideoControls({
         <button
           onClick={onToggleMute}
           className="p-2 hover:bg-white/10 rounded-lg transition-colors"
-          title={isMuted ? 'Activar sonido' : 'Silenciar'}
+          title={isMuted ? t('controls.unmute') : t('controls.mute')}
         >
           {isMuted || volume === 0 ? (
             <VolumeX size={20} />

@@ -1,0 +1,39 @@
+{
+  "app": {
+    "title": "360° Viewer"
+  },
+  "sidebar": {
+    "librariesTitle": "Video Libraries",
+    "myLibraries": "My Libraries",
+    "allFolders": "All Folders",
+    "addLibrary": "Add Library",
+    "deleteLibrary": "Delete",
+    "emptyFolder": "This folder is empty",
+    "expand": "Expand",
+    "collapse": "Collapse",
+    "items": "items",
+    "sort": {
+      "label": "Sort:",
+      "date": "Date",
+      "name": "Name"
+    }
+  },
+  "modal": {
+    "addLibrary": "Add Library",
+    "name": "Name",
+    "namePlaceholder": "My Travel Videos",
+    "path": "Folder path (relative to /videos)",
+    "pathPlaceholder": "travels/2024",
+    "cancel": "Cancel",
+    "add": "Add"
+  },
+  "controls": {
+    "play": "Play (Space)",
+    "pause": "Pause (Space)",
+    "unmute": "Unmute",
+    "mute": "Mute"
+  },
+  "confirm": {
+    "deleteLibrary": "Delete this library?"
+  }
+}

@@ -1,12 +1,13 @@
 import { useState, useCallback, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Sidebar } from './components/Sidebar';
 import { VideoPlayer } from './components/VideoPlayer';
 import { VideoControls } from './components/VideoControls';
 import { useVideo } from './hooks/useVideo';
 import { useLibraries } from './hooks/useLibraries';
-import { Menu } from 'lucide-react';
 
 function App() {
+  const { t } = useTranslation();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     return localStorage.getItem('sidebarCollapsed') === 'true';
   });
@@ -78,13 +79,13 @@ function App() {
   }, [addLibrary]);
 
   const handleDeleteLibrary = useCallback(async (id) => {
-    if (confirm('¿Eliminar esta biblioteca?')) {
+    if (confirm(t('confirm.deleteLibrary'))) {
       await deleteLibrary(id);
       if (currentLibrary === id) {
         setCurrentLibrary(null);
       }
     }
-  }, [deleteLibrary, currentLibrary]);
+  }, [deleteLibrary, currentLibrary, t]);
 
   return (
     <div className="flex h-screen bg-dark-900">
@@ -107,17 +108,6 @@ function App() {
 
       {/* Área de video */}
       <main className="flex-1 flex flex-col relative min-w-0 overflow-hidden">
-        {/* Botón para mostrar sidebar cuando está colapsado */}
-        {sidebarCollapsed && (
-          <button
-            onClick={() => setSidebarCollapsed(false)}
-            className="absolute top-5 left-5 z-40 p-2.5 bg-dark-800/90 backdrop-blur border border-dark-600 rounded-lg hover:bg-dark-700 transition-colors"
-            title="Mostrar bibliotecas"
-          >
-            <Menu size={20} />
-          </button>
-        )}
-
         {/* Reproductor */}
         <VideoPlayer
           videoRef={videoRef}
