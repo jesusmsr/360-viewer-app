@@ -29,7 +29,7 @@ function App() {
     seek,
     setVideoVolume,
     toggleMute,
-    loadVideo
+    loadVideo,
   } = useVideo();
 
   const {
@@ -40,7 +40,7 @@ function App() {
     loading,
     browseDirectory,
     addLibrary,
-    deleteLibrary
+    deleteLibrary,
   } = useLibraries();
 
   // Guardar estado del sidebar
@@ -63,32 +63,44 @@ function App() {
     setCurrentLibrary(id);
   }, []);
 
-  const handleNavigate = useCallback((path) => {
-    browseDirectory(path);
-  }, [browseDirectory]);
+  const handleNavigate = useCallback(
+    (path) => {
+      browseDirectory(path);
+    },
+    [browseDirectory],
+  );
 
-  const handlePlayVideo = useCallback((videoItem) => {
-    setCurrentVideo(videoItem.path);
-    setCurrentVideoName(videoItem.name);
-    loadVideo(videoItem.path);
-  }, [loadVideo]);
+  const handlePlayVideo = useCallback(
+    (videoItem) => {
+      setCurrentVideo(videoItem.path);
+      setCurrentVideoName(videoItem.name);
+      loadVideo(`/videos/${videoItem.path}`);
+    },
+    [loadVideo],
+  );
 
-  const handleAddLibrary = useCallback(async (name, path) => {
-    const result = await addLibrary(name, path);
-    return result;
-  }, [addLibrary]);
+  const handleAddLibrary = useCallback(
+    async (name, path) => {
+      const result = await addLibrary(name, path);
+      return result;
+    },
+    [addLibrary],
+  );
 
-  const handleDeleteLibrary = useCallback(async (id) => {
-    if (confirm(t('confirm.deleteLibrary'))) {
-      await deleteLibrary(id);
-      if (currentLibrary === id) {
-        setCurrentLibrary(null);
+  const handleDeleteLibrary = useCallback(
+    async (id) => {
+      if (confirm(t('confirm.deleteLibrary'))) {
+        await deleteLibrary(id);
+        if (currentLibrary === id) {
+          setCurrentLibrary(null);
+        }
       }
-    }
-  }, [deleteLibrary, currentLibrary, t]);
+    },
+    [deleteLibrary, currentLibrary, t],
+  );
 
   return (
-    <div className="flex h-screen bg-dark-900">
+    <div className='flex h-screen bg-dark-900'>
       {/* Sidebar */}
       <Sidebar
         libraries={libraries}
@@ -107,7 +119,7 @@ function App() {
       />
 
       {/* Área de video */}
-      <main className="flex-1 flex flex-col relative min-w-0 overflow-hidden">
+      <main className='flex-1 flex flex-col relative min-w-0 overflow-hidden'>
         {/* Reproductor */}
         <VideoPlayer
           videoRef={videoRef}
