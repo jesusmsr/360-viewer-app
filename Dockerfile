@@ -22,8 +22,8 @@ WORKDIR /app
 # Instalar dependencias Python
 RUN pip install --no-cache-dir flask flask-cors requests PyJWT
 
-# Copiar backend
-COPY backend/server.py ./
+# Copiar backend completo (estructura modular)
+COPY backend/ ./
 
 # Copiar frontend estático (build de React)
 COPY --from=frontend-builder /app/frontend/dist ./static
@@ -35,12 +35,11 @@ RUN mkdir -p /videos /app/data && chmod 777 /app/data
 EXPOSE 8080 8081
 
 # Variables de entorno
-ENV VIDEOS_PATH=/videos
-ENV LIBRARIES_FILE=/app/data/.libraries.json
-ENV FLASK_CORS=true
-ENV STATIC_FOLDER=/app/static
+ENV VIDEOS_DIR=/videos
+ENV PEERS_FILE=/app/data/.peers.json
+ENV DATA_DIR=/app/data
 
 # Puerto interno configurable (default 8080)
 ENV PORT=8080
 ENV FEDERATION_PORT=8081
-CMD ["sh", "-c", "python3 server.py"]
+CMD ["python3", "server.py"]
