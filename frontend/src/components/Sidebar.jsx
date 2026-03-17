@@ -26,6 +26,7 @@ export function Sidebar({
   peers,
   selectedPeer,
   onSelectPeer,
+  onAddPeer,
   onRemovePeer,
   onSyncPeer,
   onRefreshPeers,
@@ -84,6 +85,16 @@ export function Sidebar({
       });
 
       if (result.success) {
+        // Guardar el peer en nuestro backend local
+        if (onAddPeer) {
+          await onAddPeer({
+            id: result.peer_id,
+            name: result.peer_name || newPeerName,
+            url: newPeerUrl,
+            token: result.token || null,
+          });
+        }
+        
         setNewPeerName('');
         setNewPeerUrl('');
         setNewPeerCode('');
@@ -100,13 +111,23 @@ export function Sidebar({
   // Función para unirse usando código de invitación
   const joinWithInviteCode = async (data) => {
     try {
-      const response = await fetch('/api/federation/join', {
+      const peerUrl = data.url.replace(/\/$/, '');
+      
+      // Generar un ID único para este peer
+      const myPeerId = 'peer_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
+      
+      const response = await fetch(`${peerUrl}/api/federation/join`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-Peer-Id': myPeerId,
+          'X-Peer-Name': data.name
+        },
         body: JSON.stringify({
           url: data.url,
           invite_code: data.invite_code,
           my_name: data.name,
+          my_id: myPeerId,  // Enviamos nuestro ID para que el NAS lo use
         }),
       });
 
@@ -199,13 +220,14 @@ export function Sidebar({
   }, [showInviteModal]);
 
   // Separar carpetas y videos
+  const safeItems = items || [];
   const folders = useMemo(
-    () => items.filter((i) => i.type === 'folder'),
-    [items],
+    () => safeItems.filter((i) => i.type === 'folder'),
+    [safeItems],
   );
   const videos = useMemo(
-    () => items.filter((i) => i.type === 'video'),
-    [items],
+    () => safeItems.filter((i) => i.type === 'video'),
+    [safeItems],
   );
 
   // Ordenar videos
@@ -276,7 +298,7 @@ export function Sidebar({
               </button>
 
               {/* Bibliotecas guardadas */}
-              {Object.entries(libraries).map(([id, lib]) => (
+              {Object.entries(libraries || {}).map(([id, lib]) => (
                 <div key={id} className='group relative'>
                   <button
                     onClick={() => onSelectLibrary(id)}
@@ -414,7 +436,7 @@ export function Sidebar({
           <div className='flex-1 overflow-y-auto p-4 min-w-[320px]'>
             {/* Breadcrumbs */}
             <div className='flex items-center flex-wrap gap-1 mb-3 p-2.5 bg-white/5 rounded-lg text-sm'>
-              {breadcrumbs.map((crumb, idx) => (
+              {(breadcrumbs || []).map((crumb, idx) => (
                 <span key={idx} className='flex items-center'>
                   {idx > 0 && <span className='text-gray-600 mx-1'>›</span>}
                   <button
@@ -741,7 +763,7 @@ export function Sidebar({
                   Tus invitaciones
                 </h4>
                 <div className='space-y-2 max-h-40 overflow-y-auto'>
-                  {myInvites.map((inv) => (
+                  {(myInvites || []).map((inv) => (
                     <div
                       key={inv.code}
                       className={`flex items-center justify-between p-2 rounded-lg text-sm ${
