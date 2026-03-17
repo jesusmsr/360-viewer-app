@@ -349,6 +349,61 @@ def enable_peer(peer_id):
     
     return jsonify({'success': True, 'enabled': peers[peer_id]['enabled']})
 
+@web_app.route('/api/peers/<peer_id>/video-url', methods=['POST'])
+def get_peer_video_url(peer_id):
+    """Solicita un token de video a un peer remoto."""
+    peers = load_peers()
+    if peer_id not in peers:
+        return jsonify({'error': 'Peer no encontrado'}), 404
+    
+    peer = peers[peer_id]
+    data = request.json or {}
+    video_path = data.get('video_path')
+    
+    if not video_path:
+        return jsonify({'error': 'video_path requerido'}), 400
+    
+    try:
+        # Construir URL del peer - usar tal cual si es HTTPS
+        # (Cloudflare/proxy maneja el puerto internamente)
+        peer_url = peer.get('url', '').rstrip('/')
+        if ':8080' in peer_url:
+            peer_url = peer_url.replace(':8080', ':8081')
+        elif not ':8081' in peer_url and not peer_url.startswith('https://'):
+            # Solo añadir :8081 si no es HTTPS (para HTTP directo)
+            peer_url = peer_url + ':8081'
+        
+        # Llamar al endpoint de video-token del peer
+        token_url = f"{peer_url}/api/federation/video-token"
+        headers = {
+            'X-Peer-Token': peer.get('token', ''),
+            'Content-Type': 'application/json'
+        }
+        
+        response = requests.post(token_url, 
+                                headers=headers,
+                                json={'video_path': video_path},
+                                timeout=10)
+        
+        if response.status_code != 200:
+            return jsonify({'error': f'Error del peer: {response.text}'}), response.status_code
+        
+        token_data = response.json()
+        
+        # Construir URL final del video con token
+        video_url = f"{peer_url}/videos/{video_path}?token={token_data.get('token')}"
+        
+        return jsonify({
+            'url': video_url,
+            'token': token_data.get('token'),
+            'expires_in': token_data.get('expires_in', 3600)
+        })
+        
+    except requests.exceptions.ConnectionError:
+        return jsonify({'error': 'No se pudo conectar con el peer'}), 503
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @web_app.route('/api/federation/unified')
 def federation_unified():
     local_catalog = get_catalog_for_sharing()
@@ -560,6 +615,28 @@ def request_video_token():
         'token': token,
         'expires_in': VIDEO_TOKEN_EXPIRY
     })
+
+@fed_app.route('/videos/<path:filename>')
+@cross_origin(origins="*")
+def serve_video_federation(filename):
+    """Servir videos con validación de token en el puerto de federación."""
+    video_path = Path(VIDEOS_BASE_DIR) / filename
+    try:
+        video_path.relative_to(Path(VIDEOS_BASE_DIR))
+    except ValueError:
+        return jsonify({'error': 'Invalid path'}), 403
+    if not video_path.exists():
+        return jsonify({'error': 'Video not found'}), 404
+    token = request.args.get('token')
+    if token:
+        if not JWT_AVAILABLE:
+            return jsonify({'error': 'JWT no disponible'}), 501
+        payload = verify_video_token(token)
+        if isinstance(payload, dict) and 'error' in payload:
+            return jsonify({'error': payload['error']}), 401
+        if payload.get('video_path') != filename:
+            return jsonify({'error': 'Token no válido para este video'}), 403
+    return send_file(str(video_path), mimetype='video/mp4')
 
 @web_app.route('/api/federation/invite', methods=['POST'])
 def create_invitation():

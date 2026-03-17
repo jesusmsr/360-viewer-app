@@ -212,7 +212,7 @@ export function useLibraries() {
         const data = await response.json();
         return {
           success: true,
-          videoUrl: data.video_url,
+          videoUrl: data.url,
           expiresIn: data.expires_in,
           isLocal: false
         };
