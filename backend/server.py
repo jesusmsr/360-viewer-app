@@ -834,31 +834,9 @@ def verify_invite():
 
 @app.route('/api/federation/my-invites', methods=['GET'])
 def list_my_invites():
-    """Lista las invitaciones que he generado"""
-    invitations_file = PEERS_FILE.replace('.json', '.invitations.json')
-    
-    if not os.path.exists(invitations_file):
-        return jsonify({'invites': []})
-    
-    with open(invitations_file, 'r') as f:
-        invitations = json.load(f)
-    
-    # Filtrar solo las no expiradas
-    active_invites = []
-    for code, inv in invitations.items():
-        is_expired = datetime.now() > datetime.fromisoformat(inv['expires'])
-        active_invites.append({
-            'code': code,
-            'name': inv.get('name'),
-            'description': inv.get('description'),
-            'created': inv['created'],
-            'expires': inv['expires'],
-            'used': inv.get('used', False),
-            'used_by': inv.get('used_by'),
-            'expired': is_expired
-        })
-    
-    return jsonify({'invites': active_invites})
+    """Lista las invitaciones - AHORA SOLO DEVUELVE LISTA VACIA
+    Las invitaciones solo se muestran en el momento de creación"""
+    return jsonify({'invites': []})
 
 
 # ============================================

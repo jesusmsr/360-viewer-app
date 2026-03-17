@@ -40,4 +40,6 @@ ENV LIBRARIES_FILE=/app/data/.libraries.json
 ENV FLASK_CORS=true
 ENV STATIC_FOLDER=/app/static
 
-CMD ["python3", "server.py", "--host", "0.0.0.0", "--port", "8080"]
+# Puerto interno configurable (default 8080)
+ENV PORT=8080
+CMD ["sh", "-c", "python3 server.py --host 0.0.0.0 --port ${PORT}"]
