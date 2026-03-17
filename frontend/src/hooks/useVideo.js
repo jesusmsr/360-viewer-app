@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 
 // Detectar si estamos en desarrollo o producción
-const VIDEO_BASE = import.meta.env.DEV ? 'http://localhost:8080/videos' : '/videos';
+const VIDEO_BASE = import.meta.env.DEV ? 'http://localhost:8080/api/videos' : '/api/videos';
 
 export function useVideo() {
   const videoRef = useRef(null);

@@ -215,7 +215,7 @@ export function useLibraries() {
       // Video local - URL directa
       return {
         success: true,
-        videoUrl: `/videos/${encodeURIComponent(videoPath)}`,
+        videoUrl: `${API_BASE}/videos/${encodeURIComponent(videoPath)}`,
         isLocal: true
       };
     }

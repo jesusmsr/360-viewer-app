@@ -6,6 +6,7 @@ import {
   Plus,
   X,
   ChevronLeft,
+  ChevronRight,
   Calendar,
   FileText,
   Users,
@@ -51,11 +52,10 @@ export function Sidebar({
   const [sortBy, setSortBy] = useState('date');
   const [sortOrder, setSortOrder] = useState('desc');
 
-  // Estados para generar invitaciones
+  // Estados para generar invitaciones (efímeras - no se guardan ni listan)
   const [inviteCode, setInviteCode] = useState(null);
   const [inviteLoading, setInviteLoading] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [myInvites, setMyInvites] = useState([]);
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -89,10 +89,10 @@ export function Sidebar({
         // Usar SIEMPRE el nombre que puso el usuario, no el del servidor
         if (onAddPeer) {
           await onAddPeer({
-            id: result.peer_id,
+            id: result.your_id || result.peer_id,
             name: newPeerName, // ← Usar el nombre que escribió el usuario
             url: newPeerUrl,
-            token: result.token || null,
+            token: result.access_token || result.token || null,
           });
         }
 
@@ -146,23 +146,21 @@ export function Sidebar({
     }
   };
 
-  // Generar código de invitación
+  // Generar código de invitación (efímera - no se guarda ni lista)
   const generateInvite = async () => {
     setInviteLoading(true);
     try {
-      const response = await fetch('/api/federation/invite', {
+      const response = await fetch('/api/invites', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: 'Invitado',
-          description: 'Invitación generada desde la app',
         }),
       });
 
       if (response.ok) {
         const data = await response.json();
-        setInviteCode(data.invite_code);
-        loadMyInvites(); // Recargar lista
+        setInviteCode(data.invite_code || data.code);
       }
     } catch (err) {
       console.error('Error generando invitación:', err);
@@ -170,24 +168,34 @@ export function Sidebar({
     setInviteLoading(false);
   };
 
-  // Cargar mis invitaciones
-  const loadMyInvites = async () => {
+  // Copiar al portapapeles con fallback para HTTP
+  const copyToClipboard = async (text) => {
     try {
-      const response = await fetch('/api/federation/my-invites');
-      if (response.ok) {
-        const data = await response.json();
-        setMyInvites(data.invites || []);
+      if (navigator.clipboard && window.isSecureContext) {
+        // HTTPS o localhost - usar API moderna
+        await navigator.clipboard.writeText(text);
+      } else {
+        // HTTP - usar el método tradicional con execCommand
+        const textArea = document.createElement('textarea');
+        textArea.value = text;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-9999px';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        const success = document.execCommand('copy');
+        document.body.removeChild(textArea);
+        if (!success) {
+          throw new Error('execCommand copy failed');
+        }
       }
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     } catch (err) {
-      console.error('Error cargando invitaciones:', err);
+      console.error('Error al copiar:', err);
+      // Fallback final: mostrar alerta con el código
+      alert(`${t('modal.copyFallback') || 'No se pudo copiar. Selecciona y copia manualmente:'}\n\n${text}`);
     }
-  };
-
-  // Copiar al portapapeles
-  const copyToClipboard = (text) => {
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
   };
 
   // Validate URL format
@@ -216,12 +224,11 @@ export function Sidebar({
     }
   };
 
-  // Cargar invitaciones al abrir modal y resetear código
+  // Al abrir modal, solo resetear - no cargar lista (las invites son efímeras)
   useEffect(() => {
     if (showInviteModal) {
       setInviteCode(null); // Resetear para mostrar botón de generar
       setCopied(false);
-      loadMyInvites();
     }
   }, [showInviteModal]);
 
@@ -757,49 +764,7 @@ export function Sidebar({
               </div>
             )}
 
-            {/* Lista de invitaciones activas */}
-            {myInvites.length > 0 && (
-              <div className='mt-4'>
-                <h4 className='text-sm font-medium text-gray-400 mb-2'>
-                  {t('modal.yourInvites')}
-                </h4>
-                <div className='space-y-2 max-h-40 overflow-y-auto'>
-                  {(myInvites || []).map((inv) => (
-                    <div
-                      key={inv.code}
-                      className={`flex items-center justify-between p-2 rounded-lg text-sm ${
-                        inv.used
-                          ? 'bg-gray-800/50 text-gray-500'
-                          : 'bg-dark-900'
-                      }`}
-                    >
-                      <div>
-                        <span className='font-mono'>{inv.code}</span>
-                        {inv.used && (
-                          <span className='text-xs ml-2'>
-                            ✓ {t('modal.usedBy')} {inv.used_by}
-                          </span>
-                        )}
-                        {inv.expired && !inv.used && (
-                          <span className='text-xs ml-2 text-red-400'>
-                            {t('modal.expired')}
-                          </span>
-                        )}
-                      </div>
-                      {!inv.used && !inv.expired && (
-                        <button
-                          onClick={() => copyToClipboard(inv.code)}
-                          className='p-1 hover:bg-white/10 rounded'
-                          title={t('modal.copy')}
-                        >
-                          <Copy size={14} />
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
+
 
             <div className='flex justify-end mt-4'>
               <button
