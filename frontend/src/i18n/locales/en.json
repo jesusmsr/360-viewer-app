@@ -131,7 +131,7 @@
     "generateInvite": "Generate Invitation",
     "inviteDescription": "Create a code to share your library with friends",
     "inviteCode": "Invitation Code",
-    "inviteCodePlaceholder": "ABC-123-XYZ",
+    "inviteCodePlaceholder": "ABCD2345EFGH6789",
     "generating": "Generating...",
     "generateCode": "Generate Code",
     "shareCode": "Share this code with your friend:",

@@ -46,6 +46,51 @@ peers_cache = {}
 peers_lock = threading.Lock()
 
 # ============================================
+# RATE LIMITING (en memoria - se resetea al reiniciar)
+# ============================================
+rate_limit_store = {}  # {key: (count, reset_time)}
+RATE_LIMIT_WINDOW = 60  # segundos
+RATE_LIMIT_MAX_INVITE = 5  # intentos por minuto para invites
+RATE_LIMIT_MAX_REQUESTS = 100  # req por minuto generales
+
+def check_rate_limit(key, max_requests, window=RATE_LIMIT_WINDOW):
+    """Simple rate limiter en memoria."""
+    now = time.time()
+    if key in rate_limit_store:
+        count, reset_time = rate_limit_store[key]
+        if now > reset_time:
+            # Reset window
+            rate_limit_store[key] = (1, now + window)
+            return True, None
+        elif count >= max_requests:
+            retry_after = int(reset_time - now)
+            return False, retry_after
+        else:
+            rate_limit_store[key] = (count + 1, reset_time)
+            return True, None
+    else:
+        rate_limit_store[key] = (1, now + window)
+        return True, None
+
+def get_allowed_origins():
+    """Extraer orígenes permitidos de los peers registrados."""
+    origins = set(['http://localhost:8080', 'http://localhost:3000', 'https://360.jsanr.dev'])
+    try:
+        peers = load_peers()
+        for peer_id, config in peers.items():
+            url = config.get('url', '')
+            if url:
+                # Extraer origin (scheme + host + port)
+                from urllib.parse import urlparse
+                parsed = urlparse(url)
+                origin = f"{parsed.scheme}://{parsed.netloc}"
+                origins.add(origin)
+    except:
+        pass
+    return list(origins)
+peers_lock = threading.Lock()
+
+# ============================================
 # FUNCIONES UTILIDAD
 # ============================================
 def load_peers():
@@ -482,7 +527,44 @@ def serve_static(path):
 # APP FEDERACIÓN (Puerto 8081) - Solo peers con invite JWT
 # ============================================
 fed_app = Flask('federation')
-CORS(fed_app, resources={r"/*": {"origins": "*"}})
+
+# CORS dinámico basado en peers registrados
+@fed_app.before_request
+def dynamic_cors():
+    """Aplicar CORS dinámico basado en peers registrados."""
+    if request.method == 'OPTIONS':
+        return handle_preflight()
+    
+    # Rate limiting general
+    client_ip = request.remote_addr or 'unknown'
+    allowed, retry_after = check_rate_limit(f"req:{client_ip}", RATE_LIMIT_MAX_REQUESTS)
+    if not allowed:
+        return jsonify({'error': 'Rate limit exceeded', 'retry_after': retry_after}), 429
+
+def handle_preflight():
+    """Manejar peticiones OPTIONS (preflight CORS)."""
+    origin = request.headers.get('Origin', '*')
+    allowed_origins = get_allowed_origins()
+    
+    # Si no hay Origin o está en la lista, permitir
+    if origin == '*' or origin in allowed_origins:
+        response = jsonify({'status': 'ok'})
+        response.headers['Access-Control-Allow-Origin'] = origin if origin != '*' else '*'
+        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, X-Peer-Token, Authorization'
+        response.headers['Access-Control-Max-Age'] = '3600'
+        return response, 200
+    
+    return jsonify({'error': 'Origin not allowed'}), 403
+
+@fed_app.after_request
+def add_security_headers(response):
+    """Añadir headers de seguridad a todas las respuestas."""
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
+    return response
 
 def require_auth():
     """Verifica JWT firmado. NO consulta archivos."""
@@ -556,6 +638,12 @@ def join_with_invite():
 @fed_app.route('/api/federation/verify-invite', methods=['POST'])
 def verify_invite():
     """Verifica un invite y devuelve un JWT firmado. NO guarda el peer."""
+    # Rate limiting por IP
+    client_ip = request.remote_addr or 'unknown'
+    allowed, retry_after = check_rate_limit(f"invite:{client_ip}", RATE_LIMIT_MAX_INVITE)
+    if not allowed:
+        return jsonify({'error': 'Demasiados intentos', 'retry_after': retry_after}), 429
+    
     data = request.json
     invite_code = data.get('invite_code', '').upper().replace(' ', '-')
     peer_name = data.get('peer_name', 'Invitado')
@@ -603,7 +691,7 @@ def verify_invite():
     my_peers = load_peers()
     my_id = list(my_peers.keys())[0] if my_peers else 'server_' + secrets.token_hex(4)
     
-    return jsonify({
+    response = jsonify({
         'success': True,
         'access_token': access_token,  # JWT firmado
         'peer_name': invitation.get('name', 'Biblioteca'),
@@ -611,6 +699,7 @@ def verify_invite():
         'server_id': my_id,  # ID del servidor (NAS)
         'server_name': 'Mi NAS'  # Nombre del servidor
     })
+    return add_cors_if_needed(response)
 
 # Endpoints PROTEGIDOS (requieren token válido)
 @fed_app.route('/api/federation/catalog')
@@ -620,7 +709,12 @@ def federation_catalog():
         return auth_error
     catalog = get_catalog_for_sharing()
     catalog['shared_by'] = {'id': 'me', 'name': 'Mi Biblioteca'}
-    return jsonify(catalog)
+    
+    response = jsonify(catalog)
+    origin = request.headers.get('Origin')
+    if origin and origin in get_allowed_origins():
+        response.headers['Access-Control-Allow-Origin'] = origin
+    return response
 
 @fed_app.route('/api/federation/browse')
 def federation_browse():
@@ -635,10 +729,12 @@ def federation_browse():
     try:
         full_path.relative_to(Path(VIDEOS_BASE_DIR))
     except ValueError:
-        return jsonify({'items': [], 'exists': False, 'error': 'Invalid path'})
+        response = jsonify({'items': [], 'exists': False, 'error': 'Invalid path'})
+        return add_cors_if_needed(response)
     
     if not full_path.exists() or not full_path.is_dir():
-        return jsonify({'items': [], 'exists': False, 'error': 'Not found'})
+        response = jsonify({'items': [], 'exists': False, 'error': 'Not found'})
+        return add_cors_if_needed(response)
     
     items = []
     video_extensions = {'.mp4', '.mov', '.avi', '.mkv', '.webm'}
@@ -662,73 +758,110 @@ def federation_browse():
                     'size': stat.st_size
                 })
     except PermissionError:
-        return jsonify({'error': 'Permission denied'}), 403
+        response = jsonify({'error': 'Permission denied'}), 403
+        return add_cors_if_needed(response)
     
-    return jsonify({
+    response = jsonify({
         'items': items,
         'current_path': folder_path,
         'exists': True
     })
+    return add_cors_if_needed(response)
+
+def add_cors_if_needed(response):
+    """Añadir CORS si el origin está permitido."""
+    origin = request.headers.get('Origin')
+    if origin and origin in get_allowed_origins():
+        if isinstance(response, tuple):
+            response[0].headers['Access-Control-Allow-Origin'] = origin
+        else:
+            response.headers['Access-Control-Allow-Origin'] = origin
+    return response
 
 @fed_app.route('/api/federation/video-token', methods=['POST'])
 def request_video_token():
     if not JWT_AVAILABLE:
-        return jsonify({'error': 'JWT no disponible'}), 501
+        response = jsonify({'error': 'JWT no disponible'}), 501
+        return add_cors_if_needed(response)
     
     auth_error = require_auth()
     if auth_error:
-        return auth_error
+        return add_cors_if_needed(auth_error)
     
     data = request.json
     video_path = data.get('video_path')
     peer_id = request.peer_payload.get('peer_id', 'unknown')
     
     if not video_path:
-        return jsonify({'error': 'video_path requerido'}), 400
+        response = jsonify({'error': 'video_path requerido'}), 400
+        return add_cors_if_needed(response)
     
     full_path = Path(VIDEOS_BASE_DIR) / video_path
     try:
         full_path.relative_to(Path(VIDEOS_BASE_DIR))
     except ValueError:
-        return jsonify({'error': 'Invalid path'}), 403
+        response = jsonify({'error': 'Invalid path'}), 403
+        return add_cors_if_needed(response)
     
     if not full_path.exists():
-        return jsonify({'error': 'Video no encontrado'}), 404
+        response = jsonify({'error': 'Video no encontrado'}), 404
+        return add_cors_if_needed(response)
     
     token = generate_video_token(video_path, peer_id)
-    return jsonify({
+    response = jsonify({
         'token': token,
         'expires_in': VIDEO_TOKEN_EXPIRY
     })
+    return add_cors_if_needed(response)
 
 @fed_app.route('/videos/<path:filename>')
-@cross_origin(origins="*")
 def serve_video_federation(filename):
-    """Servir videos con validación de token en el puerto de federación."""
+    """Servir videos con validación OBLIGATORIA de token en el puerto de federación."""
+    # Token es OBLIGATORIO - sin token no hay acceso
+    token = request.args.get('token')
+    if not token:
+        return jsonify({'error': 'Token requerido'}), 401
+    
+    if not JWT_AVAILABLE:
+        return jsonify({'error': 'JWT no disponible'}), 501
+    
+    payload = verify_video_token(token)
+    if isinstance(payload, dict) and 'error' in payload:
+        return jsonify({'error': payload['error']}), 401
+    
+    if payload.get('video_path') != filename:
+        return jsonify({'error': 'Token no válido para este video'}), 403
+    
+    # Validar path
     video_path = Path(VIDEOS_BASE_DIR) / filename
     try:
         video_path.relative_to(Path(VIDEOS_BASE_DIR))
     except ValueError:
         return jsonify({'error': 'Invalid path'}), 403
+    
     if not video_path.exists():
         return jsonify({'error': 'Video not found'}), 404
-    token = request.args.get('token')
-    if token:
-        if not JWT_AVAILABLE:
-            return jsonify({'error': 'JWT no disponible'}), 501
-        payload = verify_video_token(token)
-        if isinstance(payload, dict) and 'error' in payload:
-            return jsonify({'error': payload['error']}), 401
-        if payload.get('video_path') != filename:
-            return jsonify({'error': 'Token no válido para este video'}), 403
-    return send_file(str(video_path), mimetype='video/mp4')
+    
+    # CORS dinámico - solo orígenes de peers conocidos
+    origin = request.headers.get('Origin', '*')
+    allowed_origins = get_allowed_origins()
+    if origin != '*' and origin not in allowed_origins:
+        origin = None  # No permitir este origin
+    
+    response = send_file(str(video_path), mimetype='video/mp4')
+    if origin:
+        response.headers['Access-Control-Allow-Origin'] = origin
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'DENY'
+    return response
 
 @web_app.route('/api/federation/invite', methods=['POST'])
 def create_invitation():
     data = request.json
     def generate_invite_code():
-        parts = [''.join(secrets.choice('ABCDEFGHJKLMNPQRSTUVWXYZ23456789') for _ in range(3)) for _ in range(3)]
-        return '-'.join(parts)
+        # 16 caracteres alfanuméricos (más seguro contra fuerza bruta)
+        chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+        return ''.join(secrets.choice(chars) for _ in range(16))
     
     invite_code = generate_invite_code()
     invitation = {
