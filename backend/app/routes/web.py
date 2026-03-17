@@ -38,9 +38,11 @@ def static_files(filename):
 
 @web_bp.route('/api/peers', methods=['GET'])
 def list_peers():
-    """Listar peers registrados localmente."""
+    """Listar peers registrados localmente como objeto (id -> peer)."""
     peers = PeerService.list_peers()
-    return jsonify([peer.to_dict() for peer in peers])
+    # Devolver como objeto para facilitar acceso por ID en el frontend
+    peers_dict = {peer.id: peer.to_dict() for peer in peers}
+    return jsonify(peers_dict)
 
 
 @web_bp.route('/api/peers', methods=['POST'])
@@ -144,7 +146,8 @@ def get_peer_video_url(peer_id):
         
         if token_response.status_code == 200:
             token_data = token_response.json()
-            video_url = f"{base_url}/videos/{video_path}?token={token_data['token']}"
+            # Asegurar que base_url no termine con / para evitar doble slash
+            video_url = f"{base_url.rstrip('/')}/videos/{video_path}?token={token_data['token']}"
             return jsonify({
                 'url': video_url,
                 'token': token_data['token'],
@@ -208,19 +211,12 @@ def serve_local_video(filename):
 
 
 # ============================================
-# Invitaciones
+# Invitaciones (efímeras - no se listan)
 # ============================================
-
-@web_bp.route('/api/invites', methods=['GET'])
-def list_my_invites():
-    """Listar mis invitaciones."""
-    invites = InviteService.list_invites()
-    return jsonify([inv.to_dict() for inv in invites])
-
 
 @web_bp.route('/api/invites', methods=['POST'])
 def create_my_invite():
-    """Crear nueva invitación."""
+    """Crear nueva invitación efímera."""
     data = request.json or {}
     name = data.get('name', 'Invitado')
     
@@ -228,20 +224,7 @@ def create_my_invite():
     return jsonify(invite.to_dict()), 201
 
 
-@web_bp.route('/api/invites/<code>', methods=['DELETE'])
-def delete_my_invite(code):
-    """Eliminar una invitación."""
-    success = InviteService.delete_invite(code)
-    if not success:
-        return jsonify({'error': 'Invitación no encontrada'}), 404
-    return jsonify({'success': True})
 
-
-@web_bp.route('/api/invites/cleanup', methods=['POST'])
-def cleanup_invites():
-    """Limpiar invitaciones expiradas."""
-    removed = InviteService.cleanup_expired()
-    return jsonify({'removed': removed})
 
 
 # ============================================
@@ -267,3 +250,61 @@ def list_libraries():
                 })
     
     return jsonify(libraries)
+
+
+@web_bp.route('/api/browse')
+def browse_local():
+    """Navegar carpetas locales (jerárquico)."""
+    from app.config import Config
+    base_path = Path(Config.VIDEOS_DIR)
+    path = request.args.get('path', '')
+    
+    # Construir ruta completa de forma segura
+    target_path = base_path / path if path else base_path
+    target_path = target_path.resolve()
+    
+    # Seguridad: verificar que está dentro de VIDEOS_DIR
+    try:
+        target_path.relative_to(base_path.resolve())
+    except ValueError:
+        return jsonify({'error': 'Ruta no permitida'}), 403
+    
+    if not target_path.exists():
+        return jsonify({'error': 'Ruta no encontrada'}), 404
+    
+    items = []
+    
+    if target_path.is_dir():
+        for item in sorted(target_path.iterdir()):
+            rel_path = str(item.relative_to(base_path)) if path else item.name
+            
+            if item.is_dir():
+                items.append({
+                    'type': 'folder',
+                    'name': item.name,
+                    'path': rel_path,
+                    'modified': datetime.fromtimestamp(item.stat().st_mtime).isoformat()
+                })
+            elif item.suffix.lower() in ['.mp4', '.webm', '.mov', '.mkv', '.avi']:
+                items.append({
+                    'type': 'video',
+                    'name': item.name,
+                    'path': rel_path,
+                    'size': item.stat().st_size,
+                    'modified': datetime.fromtimestamp(item.stat().st_mtime).isoformat()
+                })
+    
+    # Construir breadcrumbs
+    breadcrumbs = [{'name': '📁 Raíz', 'path': ''}]
+    if path:
+        parts = path.split('/')
+        current = ''
+        for part in parts:
+            current = f"{current}/{part}" if current else part
+            breadcrumbs.append({'name': part, 'path': current})
+    
+    return jsonify({
+        'items': items,
+        'breadcrumbs': breadcrumbs,
+        'path': path
+    })

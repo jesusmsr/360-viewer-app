@@ -39,7 +39,8 @@ if __name__ == '__main__':
     # Iniciar servidor web (bloqueante)
     logging.info(f"🎬 Web UI iniciada en puerto {Config.WEB_PORT}")
     web_app.run(
-        host='127.0.0.1',
+        host='0.0.0.0',
         port=Config.WEB_PORT,
-        debug=False
+        debug=False,
+        threaded=True
     )

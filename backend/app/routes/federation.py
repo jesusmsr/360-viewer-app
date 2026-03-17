@@ -5,7 +5,7 @@ Protegidas por invites JWT.
 import secrets
 from datetime import datetime
 
-from flask import Blueprint, request, jsonify, abort
+from flask import Blueprint, request, jsonify, abort, make_response
 
 from app.config import Config
 from app.models.peer import Peer
@@ -42,28 +42,61 @@ def before_request():
 
 def handle_preflight():
     """Manejar peticiones OPTIONS (preflight CORS)."""
-    origin = request.headers.get('Origin', '*')
+    origin = request.headers.get('Origin')
+    path = request.path
     
-    if cors_manager.is_allowed(origin):
+    # Logging para debug
+    print(f"[CORS] Preflight {request.method} {path} from origin: {origin}")
+    
+    # Endpoint de JOIN permite CUALQUIER origin (incluyendo localhost:5173)
+    is_join_endpoint = path == '/api/federation/join' or path.endswith('/join')
+    # Videos también permiten cualquier origin (autenticado por token)
+    is_video_endpoint = path.startswith('/videos/')
+    
+    if is_join_endpoint or is_video_endpoint:
+        print(f"[CORS] Allowing origin: {origin} for {path}")
         response = jsonify({'status': 'ok'})
-        cors_manager.add_cors_headers(response, origin)
+        # Permitir explícitamente el origin que venga
+        response.headers['Access-Control-Allow-Origin'] = origin or '*'
+        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Peer-Id, X-Peer-Name, Range'
+        response.headers['Access-Control-Allow-Credentials'] = 'true'
+        response.headers['Access-Control-Expose-Headers'] = 'Content-Range, Accept-Ranges, Content-Length'
+        response.headers['Access-Control-Max-Age'] = '86400'
         return response, 200
     
+    # Resto de endpoints: CORS dinámico basado en peers registrados
+    if not origin or cors_manager.is_allowed(origin):
+        response = jsonify({'status': 'ok'})
+        cors_manager.add_cors_headers(response, origin or '*')
+        return response, 200
+    
+    print(f"[CORS] Origin {origin} blocked for {path}")
     return jsonify({'error': 'Origin not allowed'}), 403
 
 
 @federation_bp.after_request
 def after_request(response):
-    """Añadir headers de seguridad."""
+    """Añadir headers de seguridad y CORS."""
+    origin = request.headers.get('Origin')
+    path = request.path
+    is_join_endpoint = path == '/api/federation/join' or path.endswith('/join')
+    
+    # CORS: endpoint de JOIN permite CUALQUIER origen (incluyendo localhost:5173)
+    if is_join_endpoint and origin:
+        response.headers['Access-Control-Allow-Origin'] = origin
+        response.headers['Access-Control-Allow-Credentials'] = 'true'
+        response.headers['Access-Control-Expose-Headers'] = 'Content-Type'
+        print(f"[CORS] Join response - allowing origin: {origin}")
+    elif origin and cors_manager.is_allowed(origin):
+        cors_manager.add_cors_headers(response, origin)
+    
+    # Headers de seguridad
     response.headers['X-Content-Type-Options'] = 'nosniff'
     response.headers['X-Frame-Options'] = 'DENY'
     response.headers['X-XSS-Protection'] = '1; mode=block'
-    response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
-    
-    # CORS dinámico
-    origin = request.headers.get('Origin')
-    if origin:
-        cors_manager.add_cors_headers(response, origin)
+    if request.is_secure:
+        response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
     
     return response
 
@@ -229,7 +262,7 @@ def serve_video_federation(filename):
     if data is None:
         return jsonify({'error': 'Video no encontrado'}), 404
     
-    response = federation_bp.make_response(data)
+    response = make_response(data)
     response.status_code = status
     
     if status == 206:
@@ -238,29 +271,20 @@ def serve_video_federation(filename):
     
     response.headers['Content-Type'] = 'video/mp4'
     
-    return response
-
-
-@federation_bp.route('/api/federation/invites', methods=['GET'])
-def list_invites():
-    """Listar invitaciones (solo administrador/local)."""
-    # Esto debería estar protegido por IP o auth local
-    # Por ahora, requerimos auth de peer
-    auth_error = require_auth()
-    if auth_error:
-        # Permitir desde localhost sin auth
-        if request.remote_addr not in ['127.0.0.1', 'localhost', '::1']:
-            return auth_error
+    # CORS: permitir cualquier origen para videos (el token ya autentica)
+    origin = request.headers.get('Origin')
+    if origin:
+        response.headers['Access-Control-Allow-Origin'] = origin
+        response.headers['Access-Control-Allow-Credentials'] = 'true'
+    else:
+        response.headers['Access-Control-Allow-Origin'] = '*'
     
-    invites = InviteService.list_invites()
-    return jsonify({
-        'invites': [inv.to_dict() for inv in invites]
-    })
+    return response
 
 
 @federation_bp.route('/api/federation/invites', methods=['POST'])
 def create_invite():
-    """Crear nueva invitación."""
+    """Crear nueva invitación efímera (no se listan)."""
     data = request.json or {}
     name = data.get('name', 'Invitado')
     
