@@ -404,6 +404,43 @@ def get_peer_video_url(peer_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@web_app.route('/api/peers/<peer_id>/browse', methods=['GET'])
+def browse_peer(peer_id):
+    """Browse jerárquico en un peer remoto."""
+    peers = load_peers()
+    if peer_id not in peers:
+        return jsonify({'error': 'Peer no encontrado'}), 404
+    
+    peer = peers[peer_id]
+    path = request.args.get('path', '')
+    
+    try:
+        # Construir URL del peer
+        peer_url = peer.get('url', '').rstrip('/')
+        if ':8080' in peer_url:
+            peer_url = peer_url.replace(':8080', ':8081')
+        elif not ':8081' in peer_url and not peer_url.startswith('https://'):
+            peer_url = peer_url + ':8081'
+        
+        # Llamar al endpoint de browse del peer
+        browse_url = f"{peer_url}/api/federation/browse"
+        headers = {'X-Peer-Token': peer.get('token', '')}
+        
+        response = requests.get(browse_url, 
+                               headers=headers,
+                               params={'path': path},
+                               timeout=10)
+        
+        if response.status_code != 200:
+            return jsonify({'error': f'Error del peer: {response.text}'}), response.status_code
+        
+        return jsonify(response.json())
+        
+    except requests.exceptions.ConnectionError:
+        return jsonify({'error': 'No se pudo conectar con el peer'}), 503
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @web_app.route('/api/federation/unified')
 def federation_unified():
     local_catalog = get_catalog_for_sharing()
@@ -584,6 +621,54 @@ def federation_catalog():
     catalog = get_catalog_for_sharing()
     catalog['shared_by'] = {'id': 'me', 'name': 'Mi Biblioteca'}
     return jsonify(catalog)
+
+@fed_app.route('/api/federation/browse')
+def federation_browse():
+    """Browse jerárquico de carpetas y videos."""
+    auth_error = require_auth()
+    if auth_error:
+        return auth_error
+    
+    folder_path = request.args.get('path', '')
+    full_path = Path(VIDEOS_BASE_DIR) / folder_path
+    
+    try:
+        full_path.relative_to(Path(VIDEOS_BASE_DIR))
+    except ValueError:
+        return jsonify({'items': [], 'exists': False, 'error': 'Invalid path'})
+    
+    if not full_path.exists() or not full_path.is_dir():
+        return jsonify({'items': [], 'exists': False, 'error': 'Not found'})
+    
+    items = []
+    video_extensions = {'.mp4', '.mov', '.avi', '.mkv', '.webm'}
+    
+    try:
+        for item in sorted(full_path.iterdir()):
+            relative_path = str(item.relative_to(Path(VIDEOS_BASE_DIR)))
+            if item.is_dir():
+                items.append({
+                    'name': item.name,
+                    'path': relative_path,
+                    'type': 'folder'
+                })
+            elif item.suffix.lower() in video_extensions:
+                stat = item.stat()
+                items.append({
+                    'name': item.name,
+                    'path': relative_path,
+                    'type': 'video',
+                    'modified': datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                    'size': stat.st_size
+                })
+    except PermissionError:
+        return jsonify({'error': 'Permission denied'}), 403
+    
+    return jsonify({
+        'items': items,
+        'current_path': folder_path,
+        'exists': True
+    })
 
 @fed_app.route('/api/federation/video-token', methods=['POST'])
 def request_video_token():

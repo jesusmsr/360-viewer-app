@@ -61,26 +61,45 @@ export function useLibraries() {
         setItems(data.items);
         setBreadcrumbs(data.breadcrumbs);
       } else {
-        // Catálogo de un peer (desde el caché de nuestro backend)
-        const response = await fetch(`${API_BASE}/federation/unified`);
+        // Catálogo de un peer - usar browse jerárquico
+        const response = await fetch(
+          `${API_BASE}/peers/${targetPeer}/browse?path=${encodeURIComponent(path)}`
+        );
         const data = await response.json();
         
-        // Buscar el peer específico
-        const peerData = data.peers.find(p => p.peer_id === targetPeer);
-        
-        if (peerData) {
-          // Mostrar items del peer
-          const peerItems = peerData.items.map(item => ({
-            ...item,
-            type: 'video',
-            source: targetPeer,
-            peer_url: peerData.peer_url
-          }));
-          setItems(peerItems);
-          setBreadcrumbs([{ name: `📁 ${peerData.peer_name}`, path: '' }]);
-        } else {
+        if (!response.ok || data.error) {
+          setError(data.error || 'Error cargando peer');
           setItems([]);
-          setError('Peer no disponible');
+          return;
+        }
+        
+        // Marcar items como del peer
+        const peerItems = data.items.map(item => ({
+          ...item,
+          source: targetPeer
+        }));
+        
+        setItems(peerItems);
+        
+        // Actualizar breadcrumbs
+        if (path === '') {
+          // Raíz del peer
+          const peerInfo = peers[targetPeer];
+          setBreadcrumbs([{ name: `📁 ${peerInfo?.name || 'Invitado'}`, path: '' }]);
+        } else {
+          // Dentro de una carpeta - construir breadcrumbs
+          const parts = path.split('/').filter(p => p);
+          const newBreadcrumbs = [
+            { name: `📁 ${peers[targetPeer]?.name || 'Invitado'}`, path: '' }
+          ];
+          
+          let currentPath = '';
+          for (const part of parts) {
+            currentPath = currentPath ? `${currentPath}/${part}` : part;
+            newBreadcrumbs.push({ name: part, path: currentPath });
+          }
+          
+          setBreadcrumbs(newBreadcrumbs);
         }
       }
       
@@ -88,10 +107,11 @@ export function useLibraries() {
       setSelectedPeer(targetPeer);
     } catch (err) {
       setError('Error navegando directorio');
+      console.error(err);
     } finally {
       setLoading(false);
     }
-  }, [selectedPeer]);
+  }, [selectedPeer, peers]);
 
   // Añadir un peer (conectar con amigo)
   const addPeer = useCallback(async (peerData) => {
