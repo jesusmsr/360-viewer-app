@@ -20,7 +20,7 @@ FROM python:3.11-slim
 WORKDIR /app
 
 # Instalar dependencias Python
-RUN pip install --no-cache-dir flask flask-cors
+RUN pip install --no-cache-dir flask flask-cors requests PyJWT
 
 # Copiar backend
 COPY backend/server.py ./
@@ -29,10 +29,10 @@ COPY backend/server.py ./
 COPY --from=frontend-builder /app/frontend/dist ./static
 
 # Crear carpetas necesarias
-RUN mkdir -p /videos /app/data
+RUN mkdir -p /videos /app/data && chmod 777 /app/data
 
 # Puerto expuesto
-EXPOSE 8080
+EXPOSE 8080 8081
 
 # Variables de entorno
 ENV VIDEOS_PATH=/videos
@@ -40,4 +40,7 @@ ENV LIBRARIES_FILE=/app/data/.libraries.json
 ENV FLASK_CORS=true
 ENV STATIC_FOLDER=/app/static
 
-CMD ["python3", "server.py", "--host", "0.0.0.0", "--port", "8080"]
+# Puerto interno configurable (default 8080)
+ENV PORT=8080
+ENV FEDERATION_PORT=8081
+CMD ["sh", "-c", "python3 server.py"]

@@ -9,9 +9,9 @@ services:
     container_name: 360-viewer
     restart: unless-stopped
     ports:
-      # ✏️ Cambia el primer número si quieres otro puerto
-      # Ejemplo: "8080:8080" para usar puerto 8080
-      - "8080:8080"
+      # ✏️ Puerto configurable via variable de entorno VIEWER_HOST_PORT (default: 8080)
+      # Uso: VIEWER_HOST_PORT=9090 docker-compose up
+      - "${VIEWER_HOST_PORT:-8080}:8080"
     volumes:
       # ✏️ CAMBIA ESTA RUTA a tu carpeta de videos 360°
       # Ejemplos:
