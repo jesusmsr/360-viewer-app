@@ -29,7 +29,7 @@ COPY backend/server.py ./
 COPY --from=frontend-builder /app/frontend/dist ./static
 
 # Crear carpetas necesarias
-RUN mkdir -p /videos /app/data
+RUN mkdir -p /videos /app/data && chmod 777 /app/data
 
 # Puerto expuesto
 EXPOSE 8080 8081

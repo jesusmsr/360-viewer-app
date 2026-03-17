@@ -29,7 +29,7 @@ except ImportError:
 VIDEOS_BASE_DIR = os.environ.get('VIDEOS_PATH', '/videos')
 LIBRARIES_FILE = os.environ.get('LIBRARIES_FILE', '/app/.libraries.json')
 STATIC_FOLDER = os.environ.get('STATIC_FOLDER', '/app/static')
-PEERS_FILE = os.environ.get('PEERS_FILE', '/app/.peers.json')
+PEERS_FILE = os.environ.get('PEERS_FILE', '/app/data/.peers.json')
 FEDERATION_SYNC_INTERVAL = int(os.environ.get('FEDERATION_SYNC_INTERVAL', '300'))
 
 WEB_PORT = int(os.environ.get('PORT', '8080'))

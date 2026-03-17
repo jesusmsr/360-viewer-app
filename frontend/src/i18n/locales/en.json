@@ -107,7 +107,7 @@
   },
   "modal": {
     "addLibrary": "Add Library",
-    "addPeer": "Add Peer",
+    "addPeer": "Connect with peer",
     "addPeerDesc": "Connect to a peer library to share videos",
     "name": "Name",
     "namePlaceholder": "My Travel Videos",
@@ -127,7 +127,20 @@
     "peerToken": "Authentication Token",
     "peerNamePlaceholder": "Enter peer name",
     "peerUrlPlaceholder": "http://peer.example.com:3000",
-    "peerTokenPlaceholder": "Enter authentication token (optional)"
+    "peerTokenPlaceholder": "Enter authentication token (optional)",
+    "generateInvite": "Generate Invitation",
+    "inviteDescription": "Create a code to share your library with friends",
+    "inviteCode": "Invitation Code",
+    "inviteCodePlaceholder": "ABC-123-XYZ",
+    "generating": "Generating...",
+    "generateCode": "Generate Code",
+    "shareCode": "Share this code with your friend:",
+    "copy": "Copy",
+    "copied": "Copied!",
+    "inviteExpiry": "The code expires in 7 days and can only be used once.",
+    "yourInvites": "Your Invitations",
+    "usedBy": "Used by",
+    "expired": "Expired"
   },
   "controls": {
     "play": "Play (Space)",

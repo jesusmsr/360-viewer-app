@@ -86,15 +86,16 @@ export function Sidebar({
 
       if (result.success) {
         // Guardar el peer en nuestro backend local
+        // Usar SIEMPRE el nombre que puso el usuario, no el del servidor
         if (onAddPeer) {
           await onAddPeer({
             id: result.peer_id,
-            name: result.peer_name || newPeerName,
+            name: newPeerName, // ← Usar el nombre que escribió el usuario
             url: newPeerUrl,
             token: result.token || null,
           });
         }
-        
+
         setNewPeerName('');
         setNewPeerUrl('');
         setNewPeerCode('');
@@ -112,22 +113,25 @@ export function Sidebar({
   const joinWithInviteCode = async (data) => {
     try {
       const peerUrl = data.url.replace(/\/$/, '');
-      
+
       // Generar un ID único para este peer
-      const myPeerId = 'peer_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
-      
+      const myPeerId =
+        'peer_' +
+        Date.now().toString(36) +
+        Math.random().toString(36).substr(2, 5);
+
       const response = await fetch(`${peerUrl}/api/federation/join`, {
         method: 'POST',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
           'X-Peer-Id': myPeerId,
-          'X-Peer-Name': data.name
+          'X-Peer-Name': data.name,
         },
         body: JSON.stringify({
           url: data.url,
           invite_code: data.invite_code,
           my_name: data.name,
-          my_id: myPeerId,  // Enviamos nuestro ID para que el NAS lo use
+          my_id: myPeerId, // Enviamos nuestro ID para que el NAS lo use
         }),
       });
 
@@ -212,9 +216,11 @@ export function Sidebar({
     }
   };
 
-  // Cargar invitaciones al abrir modal
+  // Cargar invitaciones al abrir modal y resetear código
   useEffect(() => {
     if (showInviteModal) {
+      setInviteCode(null); // Resetear para mostrar botón de generar
+      setCopied(false);
       loadMyInvites();
     }
   }, [showInviteModal]);
@@ -388,11 +394,6 @@ export function Sidebar({
                     <span className='flex-1 text-left text-sm truncate'>
                       {peer.name}
                     </span>
-                    {peer.video_count > 0 && (
-                      <span className='text-xs text-gray-500'>
-                        {peer.video_count}
-                      </span>
-                    )}
                   </button>
                   <div className='absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 flex items-center gap-1'>
                     <button
@@ -628,7 +629,7 @@ export function Sidebar({
             onClick={(e) => e.stopPropagation()}
           >
             <h3 className='text-lg font-semibold mb-2'>
-              🔗 {t('modal.addPeer') || 'Conectar con amigo'}
+              🔗 {t('modal.addPeer')}
             </h3>
             <form onSubmit={handleAddPeer} className='space-y-4'>
               <div>
@@ -665,13 +666,13 @@ export function Sidebar({
               </div>
               <div>
                 <label className='block text-sm text-gray-400 mb-1.5'>
-                  Código de invitación
+                  {t('modal.inviteCode')}
                 </label>
                 <input
                   type='text'
                   value={newPeerCode}
                   onChange={(e) => setNewPeerCode(e.target.value.toUpperCase())}
-                  placeholder='ABC-123-XYZ'
+                  placeholder={t('modal.inviteCodePlaceholder')}
                   className='w-full px-4 py-2.5 bg-dark-900 border border-dark-600 rounded-lg text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none font-mono tracking-wider'
                 />
               </div>
@@ -687,7 +688,7 @@ export function Sidebar({
                   type='submit'
                   className='flex-1 px-4 py-2.5 bg-blue-600 rounded-lg hover:bg-blue-500 transition-colors'
                 >
-                  {t('modal.connect') || 'Conectar'}
+                  {t('modal.connect')}
                 </button>
               </div>
             </form>
@@ -720,10 +721,10 @@ export function Sidebar({
                   className='px-6 py-3 bg-green-600 rounded-lg hover:bg-green-500 transition-colors disabled:opacity-50 flex items-center gap-2 mx-auto'
                 >
                   {inviteLoading ? (
-                    'Generando...'
+                    t('modal.generating')
                   ) : (
                     <>
-                      <Gift size={18} /> Generar código
+                      <Gift size={18} /> {t('modal.generateCode')}
                     </>
                   )}
                 </button>
@@ -731,7 +732,7 @@ export function Sidebar({
             ) : (
               <div className='bg-dark-900 border border-green-500/30 rounded-lg p-4 mb-4'>
                 <p className='text-sm text-gray-400 mb-2'>
-                  Comparte este código con tu amigo:
+                  {t('modal.shareCode')}
                 </p>
                 <div className='flex items-center gap-2'>
                   <code className='flex-1 bg-dark-800 px-4 py-3 rounded-lg text-2xl font-mono text-green-400 tracking-wider text-center'>
@@ -740,18 +741,18 @@ export function Sidebar({
                   <button
                     onClick={() => copyToClipboard(inviteCode)}
                     className='p-3 bg-white/10 rounded-lg hover:bg-white/20 transition-colors'
-                    title='Copiar'
+                    title={t('modal.copy')}
                   >
                     <Copy size={18} />
                   </button>
                 </div>
                 {copied && (
                   <p className='text-sm text-green-400 mt-2 text-center'>
-                    ¡Copiado!
+                    {t('modal.copied')}
                   </p>
                 )}
                 <p className='text-xs text-gray-500 mt-3'>
-                  El código expira en 7 días y solo puede usarse una vez.
+                  {t('modal.inviteExpiry')}
                 </p>
               </div>
             )}
@@ -760,7 +761,7 @@ export function Sidebar({
             {myInvites.length > 0 && (
               <div className='mt-4'>
                 <h4 className='text-sm font-medium text-gray-400 mb-2'>
-                  Tus invitaciones
+                  {t('modal.yourInvites')}
                 </h4>
                 <div className='space-y-2 max-h-40 overflow-y-auto'>
                   {(myInvites || []).map((inv) => (
@@ -776,12 +777,12 @@ export function Sidebar({
                         <span className='font-mono'>{inv.code}</span>
                         {inv.used && (
                           <span className='text-xs ml-2'>
-                            ✓ Usado por {inv.used_by}
+                            ✓ {t('modal.usedBy')} {inv.used_by}
                           </span>
                         )}
                         {inv.expired && !inv.used && (
                           <span className='text-xs ml-2 text-red-400'>
-                            Expirado
+                            {t('modal.expired')}
                           </span>
                         )}
                       </div>
@@ -789,6 +790,7 @@ export function Sidebar({
                         <button
                           onClick={() => copyToClipboard(inv.code)}
                           className='p-1 hover:bg-white/10 rounded'
+                          title={t('modal.copy')}
                         >
                           <Copy size={14} />
                         </button>
@@ -804,7 +806,7 @@ export function Sidebar({
                 onClick={() => setShowInviteModal(false)}
                 className='px-4 py-2 bg-white/10 rounded-lg hover:bg-white/15 transition-colors'
               >
-                Cerrar
+                {t('modal.close')}
               </button>
             </div>
           </div>
